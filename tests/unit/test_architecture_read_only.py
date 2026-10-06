@@ -37,6 +37,15 @@ Os guardas de cobertura também foram quebrados de propósito e restaurados:
 - `source_files` com `glob` em vez de `rglob` (só o primeiro nível): falharam
   esses dois e `test_scan_tree_reaches_nested_subpackages`.
 
+A varredura vale também para `scripts/**/*.py` (verificação de dados, §4.1), que falam
+com a rede. Prova de dente, feita à mão em 2026-10-06 e restaurada: os mesmos cinco
+imports proibidos plantados em `scripts/verify/_dente.py` (e `import web3` numa
+subpasta nova) derrubaram `test_scripts_tree_has_no_order_or_signing_imports`;
+`hyperliquid.info` passou. Encolher `source_files` (`glob` em vez de `rglob`, ignorar
+`verify`, ou ignorar uma pasta nova) derrubou
+`test_scripts_scan_covers_every_expected_script` e/ou
+`test_scripts_scan_covers_every_python_file_on_disk`.
+
 Limite conhecido: import dinâmico com argumento que não é literal (`import_module(nome)`
 com `nome` calculado) não é decidível por AST e passa. O projeto não tem motivo
 para importar dinamicamente, e uma revisão que o introduza deve ser lida com isso
@@ -45,6 +54,7 @@ em mente.
 
 import ast
 import importlib.util
+import os
 import pkgutil
 from pathlib import Path
 from typing import Final
@@ -68,6 +78,14 @@ EXPECTED_SUBPACKAGES: Final = (
 )
 
 SRC_ROOT: Final = Path(__file__).resolve().parents[2] / "src" / "copylab"
+
+#: Scripts exploratórios (verificação de dados, §4.1). Ficam fora de `src/`, mas
+#: falam com a rede, então RNF-09 vale para eles também.
+SCRIPTS_ROOT: Final = SRC_ROOT.parents[1] / "scripts"
+
+#: Scripts que a verificação de dados declara, relativos a `scripts/`. Escritos à mão
+#: de propósito, como `EXPECTED_SUBPACKAGES`: sumir com um exige editar este teste.
+EXPECTED_SCRIPTS: Final = ("verify/common.py",)
 
 #: (arquivo, linha, módulo proibido)
 Violation = tuple[Path, int, str]
@@ -260,3 +278,42 @@ def test_scan_covers_every_module_the_interpreter_can_find() -> None:
         assert spec is not None
         assert spec.origin is not None
         assert Path(spec.origin).resolve() in scanned, f"{name} não foi varrido"
+
+
+# ─── 4. Os scripts de verificação (`scripts/**/*.py`) ────────────────────────
+
+
+@pytest.mark.unit
+def test_scripts_tree_has_no_order_or_signing_imports() -> None:
+    violations = scan_tree(SCRIPTS_ROOT)
+    report = "\n".join(
+        f"  {path.relative_to(SCRIPTS_ROOT)}:{line} importa {module}"
+        for path, line, module in violations
+    )
+    assert not violations, f"RNF-09 violado em scripts/ (ADR-0001):\n{report}"
+
+
+@pytest.mark.unit
+def test_scripts_scan_covers_every_expected_script() -> None:
+    scanned = set(source_files(SCRIPTS_ROOT))
+    assert scanned, "a varredura de scripts/ não encontrou nenhum arquivo"
+    for name in EXPECTED_SCRIPTS:
+        assert SCRIPTS_ROOT / name in scanned, f"script {name!r} não foi varrido"
+
+
+@pytest.mark.unit
+def test_scripts_scan_covers_every_python_file_on_disk() -> None:
+    """Visão independente: `os.walk` enumera o que `rglob` deveria ter varrido.
+
+    Pega um script novo que a varredura deixe de ver (por exemplo, por estar numa
+    pasta que `source_files` passasse a filtrar).
+    """
+    on_disk = {
+        (Path(folder) / name).resolve()
+        for folder, _, names in os.walk(SCRIPTS_ROOT)
+        for name in names
+        if name.endswith(".py")
+    }
+    scanned = {path.resolve() for path in source_files(SCRIPTS_ROOT)}
+    assert on_disk
+    assert on_disk <= scanned, f"fora da varredura: {sorted(on_disk - scanned)}"
