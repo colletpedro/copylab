@@ -1,0 +1,38 @@
+# Hooks locais do copylab.
+#
+#   uv run pre-commit install
+#
+# ruff vem pinado do upstream (rápido e isolado). mypy roda pelo ambiente do
+# projeto via `uv run`, para não divergir de `make typecheck`: um mypy em
+# ambiente isolado não enxergaria os stubs de pydantic.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  # Mesma versão do ruff que o uv.lock resolve. Se divergir, o pre-commit e o
+  # `make lint` passam a formatar de jeitos diferentes. Ao atualizar o lock,
+  # atualize este pin junto.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy --strict
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [src, tests]
