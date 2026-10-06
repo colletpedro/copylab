@@ -306,3 +306,95 @@ de 1.000 e um teto de 1.200).
 
 Levar `docs/verificacao-de-dados.md` à conversa de arquitetura **antes de qualquer outra coisa ser construída**,
 e decidir, ponto a ponto, o que vira emenda de requisitos e o que vira ADR. Só depois o gate 2 (design).
+
+---
+
+# HANDOFF — Publicação, emenda 1.1 e verificação complementar (prompt 03)
+
+**Data:** 2026-10-06
+**Escopo entregue:** repositório publicado com o CI verde; emenda 1.1 aplicada **como proposta**; RF-VER-05
+executada e seção nova no fim de `docs/verificacao-de-dados.md`.
+**Escopo deliberadamente não entregue:** aprovar a emenda, implementar qualquer coisa com base nela,
+editar o conteúdo dos cinco arquivos dela.
+
+## 1. O que foi feito
+
+### Parte 1 — publicar
+- `origin` = `https://github.com/colletpedro/copylab.git` e `git push -u origin main`. O prompt trazia
+  `<URL_DO_REPOSITORIO>` literal; usei a URL que você tinha dado no prompt 02.
+- **Primeira execução do CI: verde nos dois jobs** (`Lint, tipos e testes` e `Auditoria de dependências`,
+  13 s cada). Só houve avisos de depreciação do Node 20 nas actions `setup-uv@v6` e `upload-artifact@v4` e um
+  aviso de migração do `ubuntu-latest` para o Ubuntu 26 em 2026-10-19. Nada foi alterado no workflow.
+- Assim que o repositório recebeu o `dependabot.yml`, o Dependabot abriu duas execuções (`uv` e
+  `github-actions`). Não toquei em nenhum PR dele.
+
+### Parte 2 — emenda 1.1
+- **O que o prompt descrevia não era o que estava em disco.** Os cinco arquivos não estavam "por cima" das
+  versões anteriores na raiz: estavam numa pasta `Emenda 1.1/` (não rastreada), com a mesma estrutura de
+  caminhos. Como o destino de cada um é inequívoco, **copiei** os cinco para os mesmos caminhos (sem editar) e
+  conferi o diff. Se a intenção era outra, é só dizer.
+- `git diff --stat` mostrou **exatamente cinco arquivos**: `CLAUDE.md`, os requisitos e os ADRs 0001, 0003 e
+  0004.
+- **Nos três ADRs, 0 linhas removidas**; os acréscimos estão todos no fim, sob `## Errata — 2026-10-06`.
+- Commits, um por assunto: requisitos (`c653897`), erratas (`4dd20d4`), `CLAUDE.md` (`60e9929`) e índices
+  (`6499f78`: `specs/CHANGELOG.md`, `specs/README.md` e `docs/STATE.md`).
+- **Decisões minhas nos índices:** na tabela de ADRs do `specs/README.md`, o status dos três passou a "aceito, com
+  errata de 2026-10-06"; no roadmap, a linha de verificação e a de 1A passaram a dizer que a emenda está
+  proposta. As entradas do CHANGELOG resumem a história de versões do próprio documento de requisitos.
+- **Sobras não commitadas, de propósito:** `AGENTS.md` (já estava na pasta, não rastreado, e difere do
+  `CLAUDE.md`) e a pasta `Emenda 1.1/`. Apague ou guarde, como preferir.
+
+### Parte 3 — RF-VER-05
+Os quatro critérios têm status `ok`. Os números e as seções "O que contradiz a spec" e "O que não foi possível
+medir" estão no fim do relatório. Em uma frase cada:
+
+| Critério | Resultado |
+|---|---|
+| CA-05.1 | A coleta paginou com início inclusivo e deduplicação. Recoletei as 7 carteiras com quebra com as fronteiras de página registradas: idênticas à primeira coleta. 0 de 100 quebras caem numa fronteira; 0 de 100 reconsultas (10 sorteadas + 90 de complemento) devolveram fill ausente. **A paginação não explica nenhuma quebra; a coleta não foi alterada** e as taxas de quebra seguem 0,82% e 0,16% |
+| CA-05.2 | 978 episódios: mediana 0,002 bps, p95 0,40, p99 1,41, máximo 3,26; **1,7% acima de 1 bp** (abaixo dos 5% da emenda). Por carteira: **7 de 39 (17,9%)** teriam um episódio acima de 1 bp |
+| CA-05.3 | `fundingHistory` devolveu 168 registros em 168 horas, um por hora; `time` cai de 0 a 127 ms depois do início da hora |
+| CA-05.4 | F9 passa em 6 de 54 carteiras com BTC, ETH e SOL e em 24 de 54 com os 27 listados que têm equivalente na Binance. CASHCAT (9º) e PURR não têm equivalente |
+
+## 2. Verificação
+
+| Critério de pronto | Estado |
+|---|---|
+| `make check` verde | ✅ 105 testes, `mypy --strict` e `ruff` limpos |
+| CI do GitHub verde | ✅ primeira execução, nos dois jobs |
+| `pre-commit run --all-files` | ✅ |
+| Cinco arquivos da emenda, sem edição | ✅ `git diff` conferido; ADRs só com acréscimos |
+| Nada de `data/` no git | ✅ |
+
+## 3. O que deu errado no caminho — registrado, não maquiado
+
+- **Defeito na minha reconsulta.** A primeira versão somava as páginas sem deduplicar o milissegundo da fronteira.
+  O complemento chegou a mostrar "4 consultas devolveram fill que faltava", todas de uma carteira com 10.694
+  fills, e isso quase virou conclusão de que a coleta perdia fills. Era contagem em duplicata. Corrigi
+  (`db946ac`), com teste de regressão que cai com o defeito, e **reexecutei** a RF-VER-05. Os números do
+  relatório são os da versão corrigida.
+- **Linha de base injusta.** A primeira comparação "quebras que atravessam fronteira" contra "pares íntegros que
+  atravessam" misturava vãos de 1 posição com vãos de horas. Passou a comparar por faixa de vão.
+- **Instrumentação da coleta.** `collect_fills` ganhou `boundaries`, `max_pages` e `truncated`. A coleta original
+  não guardava as fronteiras; a instrumentação só acrescenta dado, e a recoleta idêntica nas 7 carteiras é a
+  prova de que o comportamento não mudou.
+- **Pipes em tabelas Markdown.** A regra de CA-05.2 trazia `|...|` dentro de uma célula e quebrava a tabela.
+  Corrigi no gerador.
+
+## 4. Em aberto
+
+1. **A decisão sobre a emenda 1.1** (a conversa de arquitetura). A RF-VER-05 deixou quatro pontos para ela, listados
+   em `docs/STATE.md` §"Próximo".
+2. **Erratas versus supersedência.** O CLAUDE.md §2 diz que, quando uma decisão muda, escreve-se um ADR novo que
+   declara supersedência. A errata do ADR-0001 diz que "deixa de valer" uma consequência do corpo (exclusão de
+   carteiras com mais de 10.000 fills) e a substitui por outra. O corpo não foi editado, como o prompt exigia, mas
+   vale decidir se isso é errata ou revogação.
+3. **Os pontos 1 a 4 do HANDOFF da Fase 0 seguem valendo** (tolerância ao exit 5 em `make test-integration`,
+   templates com `quantlab`, cobertura trivial); o CI nunca rodado deixou de valer, porque agora rodou e passou.
+4. **Avisos do CI.** Node 20 deprecado nas actions e migração do `ubuntu-latest` em 2026-10-19. O Dependabot deve
+   propor as atualizações.
+5. **`AGENTS.md` e `Emenda 1.1/`** continuam não rastreados.
+
+## 5. Próximo passo
+
+Levar a seção nova de `docs/verificacao-de-dados.md` à conversa de arquitetura **junto com a decisão sobre a
+emenda 1.1**. Só depois da aprovação, o gate 2 (design).

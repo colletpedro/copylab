@@ -20,7 +20,7 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | ADRs 0001 a 0005 | ✅ aceitos; 0001, 0003 e 0004 com errata de 2026-10-06 (corpo inalterado) |
 | Fundação (Fase 0) | ✅ `make check` verde; CI verde no GitHub |
 | Verificação de dados (§4.1) | ✅ RF-VER-01 a 04 executadas: 8 `ok`, 1 `a emendar`, 2 `reprova`, 1 `não medido` |
-| Verificação complementar (RF-VER-05) | ⬜ proposta na emenda 1.1; execução em curso |
+| Verificação complementar (RF-VER-05) | ✅ executada em 2026-10-06: 4 `ok` (seção no fim do relatório). Nenhuma quebra de continuidade é explicada pela paginação; 1,7% dos episódios passam de 1 bp do notional (7 de 39 carteiras com ao menos um) |
 | Design da Fase 1 | ⬜ aguarda a aprovação da emenda 1.1 |
 | Plano de tarefas | ⬜ |
 | Implementação | ⬜ |
@@ -28,10 +28,13 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
 ## Próximo
 
-1. Rodar a verificação complementar RF-VER-05 (quebras e paginação, divergência de PnL sobre o notional,
-   funding, ativos e F9). Ela alimenta a decisão sobre a emenda.
-2. **Conversa de arquitetura:** decidir a aprovação da emenda 1.1, com o relatório e a seção de RF-VER-05.
-   Nada é implementado com base na emenda enquanto ela estiver só proposta.
+**Conversa de arquitetura**, com o relatório inteiro (RF-VER-01 a RF-VER-05) e a decisão sobre a
+**aprovação da emenda 1.1**. Nada é implementado com base na emenda enquanto ela estiver só proposta.
+Pontos que a RF-VER-05 deixou para essa decisão: (1) o efeito por carteira da regra de 1 bp (7 de 39
+inelegíveis, contra 1,7% dos episódios); (2) a causa das quebras de continuidade, que a paginação não
+explica; (3) as qualificações de F9 com o universo por regra (circularidade, "equivalente" como
+existência de arquivo, escala de 3.000 candidatas); (4) se as erratas de ADR bastam ou se a revogação de
+consequências pede ADR novo (CLAUDE.md §2).
 
 ## O que existe no código
 
@@ -46,6 +49,6 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
 ## Números
 
-- 97 testes unitários, todos offline.
+- 105 testes unitários, todos offline.
 - Cobertura medida: 0 linhas em `selection`, `sim` e `analytics` (pacotes vazios). O
   100% reportado é trivial.

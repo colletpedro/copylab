@@ -36,7 +36,7 @@ Numerados e imutáveis. Quando uma decisão muda, cria-se um ADR novo que declar
 | Fase | Escopo | Estado |
 |---|---|---|
 | 0 | Fundação: repositório, CI e convenções herdadas do quantlab | concluída |
-| 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | RF-VER-01 a RF-VER-04 executadas em 2026-10-06 (`docs/verificacao-de-dados.md`); RF-VER-05 (complementar) proposta na emenda 1.1 |
+| 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | RF-VER-01 a RF-VER-05 executadas em 2026-10-06 (`docs/verificacao-de-dados.md`); a RF-VER-05 (complementar) integra a emenda 1.1, ainda proposta |
 | 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | requisitos 1.0 aprovados; emenda 1.1 proposta, aguardando aprovação |
 | 1B | Semana ao vivo: 7 dias de livro gravado e o gate do piloto | depende de 1A |
 | 1C | Veredito do estudo: 30 dias de avaliação prospectiva | depende de 1B |
