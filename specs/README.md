@@ -35,7 +35,7 @@ Numerados e imutáveis. Quando uma decisão muda, cria-se um ADR novo que declar
 
 | Fase | Escopo | Estado |
 |---|---|---|
-| 0 | Fundação: repositório, CI e convenções herdadas do quantlab | não iniciada |
+| 0 | Fundação: repositório, CI e convenções herdadas do quantlab | concluída |
 | 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | não iniciada |
 | 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | requisitos aprovados |
 | 1B | Semana ao vivo: 7 dias de livro gravado e o gate do piloto | depende de 1A |
