@@ -526,3 +526,28 @@ def test_continuity_break_pairs_returns_the_series_indexes() -> None:
         _fill("B", 1, 100, 10.0),
     ]
     assert analysis.continuity_break_pairs(fills, 0.001) == [(1, 2)]
+
+
+@pytest.mark.unit
+def test_straddle_by_span_compares_broken_and_intact_pairs_of_the_same_span() -> None:
+    """Três fills de BTC consecutivos na carteira (posições 0, 1 e 2; lote 0,001) e uma
+    fronteira de página no índice 2. O par (1, 2) atravessa a fronteira (1 < 2 <= 2) e o par
+    (0, 1) não. Ambos têm vão 1 e são íntegros; marcado o segundo como quebrado, a faixa "1"
+    passa a ter 1 par íntegro (0 atravessando) e 1 quebrado (atravessando)."""
+    v05 = _load("v05_complement")
+    fills = [
+        _fill("B", 1, 100, 0.0, time=1),
+        _fill("B", 1, 100, 1.0, time=2),
+        _fill("B", 1, 100, 2.0, time=3),
+    ]
+    rec = {"address": "0xa", "fills": fills}
+    assets = {"BTC": {"szDecimals": 3, "isDelisted": False}}
+    marks = {"0xa": [2]}
+    intact = v05.straddle_by_span([rec], assets, marks, set())
+    assert intact["1"]["intact"] == {"pairs": 2, "crossing": 1}
+    mixed = v05.straddle_by_span([rec], assets, marks, {("0xa", "BTC", 2)})
+    assert mixed["1"]["intact"] == {"pairs": 1, "crossing": 0}
+    assert mixed["1"]["broken"] == {"pairs": 1, "crossing": 1}
+    assert [v05.span_band(d) for d in (1, 2, 10, 11, 100, 101, 1000, 1001)] == [
+        "1", "2 a 10", "2 a 10", "11 a 100", "11 a 100", "101 a 1000", "101 a 1000", "mais de 1000",
+    ]  # fmt: skip

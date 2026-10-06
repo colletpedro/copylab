@@ -118,20 +118,40 @@ def find_breaks(records: list[dict[str, Any]], assets: dict[str, Any]) -> list[d
     return sorted(out, key=lambda b: (b["address"], b["coin"], b["t_a"]))
 
 
-def count_pairs(
-    records: list[dict[str, Any]], assets: dict[str, Any], boundaries: dict[str, list[int]]
-) -> dict[str, int]:
-    """Pares consecutivos do mesmo ativo (todos, e os que atravessam fronteira de página)."""
-    total = crossing = 0
+SPAN_BANDS = ((1, 1, "1"), (2, 10, "2 a 10"), (11, 100, "11 a 100"), (101, 1000, "101 a 1000"))
+
+
+def span_band(distance: int) -> str:
+    """Faixa do vão, em posições da lista de fills da carteira, entre os dois fills de um par."""
+    for low, high, name in SPAN_BANDS:
+        if low <= distance <= high:
+            return name
+    return "mais de 1000"
+
+
+def straddle_by_span(
+    records: list[dict[str, Any]],
+    assets: dict[str, Any],
+    boundaries: dict[str, list[int]],
+    broken: set[tuple[str, str, int]],
+) -> dict[str, dict[str, dict[str, int]]]:
+    """Por faixa de vão: pares consecutivos do mesmo ativo (quebrados e íntegros) e quantos
+    atravessam uma fronteira de página. Comparar quebra e par íntegro de *mesmo vão* evita o
+    viés de que um vão longo atravessa fronteira só por ser longo."""
+    out: dict[str, dict[str, Counter[str]]] = defaultdict(
+        lambda: {"broken": Counter(), "intact": Counter()}
+    )
     for rec in records:
         marks = boundaries.get(rec["address"])
         if marks is None:
             continue
-        for items in perp_series(rec, assets).values():
-            for (pos_a, _), (pos_b, _) in pairwise(items):
-                total += 1
-                crossing += any(pos_a < b <= pos_b for b in marks)
-    return {"pairs": total, "crossing_a_page_boundary": crossing}
+        for coin, items in perp_series(rec, assets).items():
+            for (pos_a, fa), (pos_b, _) in pairwise(items):
+                kind = "broken" if (rec["address"], coin, int(fa["time"])) in broken else "intact"
+                band = span_band(pos_b - pos_a)
+                out[band][kind]["pairs"] += 1
+                out[band][kind]["crossing"] += any(pos_a < m <= pos_b for m in marks)
+    return {band: {k: dict(v) for k, v in kinds.items()} for band, kinds in out.items()}
 
 
 def recollect(
@@ -219,7 +239,8 @@ def ca_051(
             }
         )
     known = [c for c in classified if c["straddles"] is not None]
-    baseline = count_pairs(records, assets, boundaries)
+    broken_keys = {(b["address"], b["coin"], b["t_a"]) for b in breaks}
+    by_span = straddle_by_span(records, assets, boundaries, broken_keys)
 
     picks = (
         random.Random(SEED).sample(breaks, min(N_BREAKS_TO_REQUERY, len(breaks))) if breaks else []
@@ -230,6 +251,16 @@ def ca_051(
         queries.append(requery(client, cached[brk["address"]], brk))
         progress.tick(brk["address"][:10], weight=int(client.budget.total_weight))
     returned_missing = [q for q in queries if q["missing_from_stored"] > 0]
+
+    # Complemento (fora da spec): reconsulta as demais quebras do mesmo jeito. Custa pouco e
+    # transforma a amostra de 10 num censo das 100.
+    picked = {(b["address"], b["coin"], b["t_a"]) for b in picks}
+    rest = [b for b in breaks if (b["address"], b["coin"], b["t_a"]) not in picked]
+    progress = Progress(ctx, f"{STEP} consultas do complemento", max(len(rest), 1))
+    census = []
+    for brk in rest:
+        census.append(requery(client, cached[brk["address"]], brk))
+        progress.tick(brk["address"][:10], weight=int(client.budget.total_weight))
     return {
         "pagination": {
             "start_of_page": "inclusivo (startTime = instante do último fill da página anterior)",
@@ -247,10 +278,17 @@ def ca_051(
         "classified_breaks": len(known),
         "straddling_a_page_boundary": sum(bool(c["straddles"]) for c in known),
         "adjacent_across_a_page_boundary": sum(bool(c["adjacent"]) for c in known),
-        "baseline_pairs": baseline,
+        "straddle_by_span": by_span,
         "queries": queries,
         "queries_returning_a_missing_fill": len(returned_missing),
         "queries_covering_whole_interval": sum(q["covers_whole_interval"] for q in queries),
+        "complement_all_other_breaks": {
+            "queries": len(census),
+            "covering_whole_interval": sum(q["covers_whole_interval"] for q in census),
+            "returning_a_missing_fill": sum(q["missing_from_stored"] > 0 for q in census),
+            "with_stored_fills_not_returned": sum(bool(q["stored_not_returned"]) for q in census),
+            "fills_returned_total": sum(q["returned"] for q in census),
+        },
     }
 
 
