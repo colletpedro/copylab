@@ -974,7 +974,9 @@ def section_v05(ctx: Ctx) -> Path:
         rows.append(
             [
                 "`CA-05.2`",
-                m2["rule"],
+                m2["rule"].replace(
+                    "|reconstruído - closedPnl|", "módulo(reconstruído - closedPnl)"
+                ),
                 (
                     f"{al['n']} episódios; mediana {num(al['median'], 4)}, p95 {num(al['p95'], 3)}, p99 "
                     f"{num(al['p99'], 3)}, máximo {num(al['max'], 3)} bps; {pct(al['fraction_above'])} acima de 1 bp"
@@ -987,7 +989,7 @@ def section_v05(ctx: Ctx) -> Path:
                 "`CA-05.3`",
                 m3["rule"],
                 (
-                    f"{a3['records']} registros em 168 horas; intervalo mediano {num(a3['interval_s']['median'], 3)} s; "
+                    f"{a3['records']} registros em 168 horas; intervalo mediano {a3['interval_s']['median']:.3f} s; "
                     f"horas com registro: {a3['hours_with_a_record']}/168"
                 ),
                 f"**{m3['status']}**",
@@ -1050,13 +1052,16 @@ def section_v05(ctx: Ctx) -> Path:
             "na lista e a fronteira os separa).\n"
         )
         rows = []
-        for band, kinds in a1["straddle_by_span"].items():
+        order = ["1", "2 a 10", "11 a 100", "101 a 1000", "mais de 1000"]
+        for band, kinds in sorted(
+            a1["straddle_by_span"].items(), key=lambda kv: order.index(kv[0])
+        ):
             bk, ik = kinds.get("broken", {}), kinds.get("intact", {})
             rows.append(
                 [
                     band,
                     f"{bk.get('crossing', 0)} de {bk.get('pairs', 0)}",
-                    f"{ik.get('crossing', 0)} de {ik.get('pairs', 0)} ({pct(ik.get('crossing', 0) / ik['pairs']) if ik.get('pairs') else '—'})",
+                    f"{ik.get('crossing', 0)} de {ik.get('pairs', 0)} ({pct(ik.get('crossing', 0) / ik['pairs'], 2) if ik.get('pairs') else '—'})",
                 ]
             )
         w(
@@ -1136,6 +1141,12 @@ def section_v05(ctx: Ctx) -> Path:
                 rows,
             )
             + "\n"
+        )
+
+        w(
+            f"Por carteira: das {a2['wallets_with_closed_episodes']} carteiras com episódio fechado e íntegro, "
+            f"{a2['wallets_with_an_episode_above_1bp']} ({pct(a2['wallets_with_an_episode_above_1bp'] / a2['wallets_with_closed_episodes'])}) "
+            "têm ao menos um episódio acima de 1 bp.\n"
         )
 
         # ─── CA-05.3 ───
@@ -1243,6 +1254,35 @@ def section_v05(ctx: Ctx) -> Path:
         )
         w(
             f"Listados só com equivalente em parte dos dias: {a4['listed_with_equivalent_on_some_days'] or 'nenhum'}.\n"
+        )
+
+    if res and res.get("auxiliary"):
+        x = res["auxiliary"]
+        w("### Medidas auxiliares (só contagens)\n")
+        w(
+            table(
+                ["Medida", "Valor"],
+                [
+                    ["Carteiras analisadas (as duas amostras)", x["wallets"]],
+                    [
+                        "Maior número de fills de uma carteira na janela de seleção",
+                        f"{x['max_in_window_fills']:,}",
+                    ],
+                    [
+                        "Carteiras com mais de 10.000 / mais de 20.000 fills na janela",
+                        f"{x['wallets_over_10000']} / {x['wallets_over_20000']}",
+                    ],
+                    [
+                        "Maior número de fills de uma carteira no mesmo milissegundo",
+                        x["max_fills_in_one_millisecond"],
+                    ],
+                    [
+                        "Carteiras com 20 ou mais fills no mesmo milissegundo",
+                        x["wallets_with_20_or_more_in_one_millisecond"],
+                    ],
+                ],
+            )
+            + "\n"
         )
 
     target = ctx.root / "report_v05.generated.md"

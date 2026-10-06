@@ -313,16 +313,40 @@ def ca_052(
                 (rec["address"], n, bps)
                 for n, bps in pnl_divergence_bps(build_episodes(fills, lot))
             ]
+    wallets_with_episode = {a for a, _, _ in pairs}
+    wallets_above = {a for a, _, bps in pairs if bps > 1.0}
     bands = {b: [bps for _, n, bps in pairs if size_band(n) == b] for b in SIZE_BANDS}
     in_01 = set(sample_01)
     in_02 = set(sample_02)
     return {
+        "wallets_with_closed_episodes": len(wallets_with_episode),
+        "wallets_with_an_episode_above_1bp": len(wallets_above),
         "all": ratio_summary([bps for _, _, bps in pairs]),
         "by_band": {b: ratio_summary(v) for b, v in bands.items()},
         "by_sample": {
             "amostra de RF-VER-01 (20)": ratio_summary([bps for a, _, bps in pairs if a in in_01]),
             "amostra de RF-VER-02 (100)": ratio_summary([bps for a, _, bps in pairs if a in in_02]),
         },
+    }
+
+
+def auxiliary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Medidas auxiliares, só contagens, para dimensionar limiares da emenda 1.1.
+
+    Maior número de fills de uma carteira na janela (contra o teto de 20.000 de RF-ING-02
+    CA-02.3) e maior número de fills no mesmo milissegundo (contra a página de 2.000 da coleta).
+    """
+    per_wallet = [len(r["fills"]) for r in records]
+    same_ms = [
+        max(Counter(int(f["time"]) for f in r["fills"]).values(), default=0) for r in records
+    ]
+    return {
+        "wallets": len(records),
+        "max_in_window_fills": max(per_wallet, default=0),
+        "wallets_over_20000": sum(n > 20_000 for n in per_wallet),
+        "wallets_over_10000": sum(n > 10_000 for n in per_wallet),
+        "max_fills_in_one_millisecond": max(same_ms, default=0),
+        "wallets_with_20_or_more_in_one_millisecond": sum(n >= 20 for n in same_ms),
     }
 
 
@@ -477,8 +501,9 @@ def run(ctx: Ctx, client: HlClient) -> dict[str, Any]:
     c052 = criterion(
         "não medido" if fraction is None else ("a emendar" if fraction > 0.05 else "ok"),
         {"all": a052["all"], "by_band": a052["by_band"]},
-        "mediana, p95, p99 e máximo da razão |reconstruído - closedPnl| / notional, em bps, por "
-        "faixa de fills, e a fração acima de 1 bp; acima de 5% RF-ING-04 CA-04.2 volta para emenda",
+        "mediana, p95, p99 e máximo da razão módulo(reconstruído - closedPnl) / notional, em "
+        "bps, por faixa de fills, e a fração acima de 1 bp; acima de 5% RF-ING-04 CA-04.2 volta "
+        "para emenda",
     )
     full = a053["hours_with_a_record"] == FUNDING_HOURS and not a053["hours_with_more_than_one"]
     c053 = criterion(
@@ -505,6 +530,7 @@ def run(ctx: Ctx, client: HlClient) -> dict[str, Any]:
         "ca_052": a052,
         "ca_053": a053,
         "ca_054": a054,
+        "auxiliary": auxiliary(records),
         "criteria": {
             "RF-VER-05 CA-05.1": c051,
             "RF-VER-05 CA-05.2": c052,
@@ -523,11 +549,35 @@ def run(ctx: Ctx, client: HlClient) -> dict[str, Any]:
     return result
 
 
+def refresh_offline(ctx: Ctx) -> None:
+    """Recalcula só o que é offline (CA-05.2 e as medidas auxiliares) em `results/v05.json`."""
+    path = ctx.path("results", "v05.json")
+    res = read_json(path)
+    records, sample_01, sample_02 = load_records(ctx)
+    meta = read_json(ctx.path("meta.json"))
+    res["ca_052"] = ca_052(records, meta["assets"], sample_01, sample_02)
+    res["auxiliary"] = auxiliary(records)
+    fraction = res["ca_052"]["all"].get("fraction_above")
+    c052 = res["criteria"]["RF-VER-05 CA-05.2"]
+    c052["measured"] = {"all": res["ca_052"]["all"], "by_band": res["ca_052"]["by_band"]}
+    c052["status"] = (
+        "não medido" if fraction is None else ("a emendar" if fraction > 0.05 else "ok")
+    )
+    write_json(path, res)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument(
+        "--refresh-offline", action="store_true", help="recalcula só CA-05.2 e as auxiliares"
+    )
     args = parser.parse_args()
-    run(make_ctx(args.smoke), HlClient(RateBudget()))
+    ctx = make_ctx(args.smoke)
+    if args.refresh_offline:
+        refresh_offline(ctx)
+        return
+    run(ctx, HlClient(RateBudget()))
 
 
 if __name__ == "__main__":
