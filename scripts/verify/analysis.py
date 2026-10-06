@@ -126,11 +126,14 @@ def unexpected_fields(fills: Iterable[dict[str, Any]]) -> Counter[str]:
 
 
 def classify_coin(coin: str, perp_names: frozenset[str]) -> str:
-    """`perp` (primeiro dex), `perp_fora_do_meta`, `hip3` ou `spot`.
+    """`perp` (primeiro dex), `perp_fora_do_meta`, `hip3`, `spot` ou `outcome`.
 
-    HIP-3 vem como `dex:ATIVO`; spot como `@N` ou `BASE/QUOTE`. Perpétuo que não está
+    HIP-3 vem como `dex:ATIVO`; spot como `@N` ou `BASE/QUOTE`; tokens de resultado
+    (`dir` como `Buy`, `Merge Outcome`, `Settlement`) como `#N`. Perpétuo que não está
     mais no `meta` (delistado e removido) é `perp_fora_do_meta`.
     """
+    if coin.startswith("#"):
+        return "outcome"
     if ":" in coin:
         return "hip3"
     if coin.startswith("@") or "/" in coin:
@@ -326,6 +329,57 @@ def fill_level_concordance(
             if abs(position) < 1e-12:
                 position = 0.0
     return dict(out)
+
+
+def concordance_by_size(
+    episodes: Iterable[Episode], *, tolerances: Sequence[float] = (1e-6, 1e-3)
+) -> dict[str, int]:
+    """Episódios fechados e íntegros que conciliam (hipótese bruta), por nº de fills.
+
+    Faixas: `2` (abre e fecha), `3-4` e `5+`. Só contagens (regra 2 do prompt 02).
+    """
+    out: Counter[str] = Counter()
+    for episode in episodes:
+        if episode.ended != "flat" or not episode.clean:
+            continue
+        n = len(episode.fills)
+        band = "2" if n == 2 else ("3-4" if n <= 4 else "5+")
+        out[f"{band}|tested"] += 1
+        for tol in tolerances:
+            out[f"{band}|gross@{tol:g}"] += concordance([episode], rel_tol=tol, abs_tol=tol).get(
+                "gross", 0
+            )
+    return dict(out)
+
+
+def continuity_breaks(fills: Sequence[dict[str, Any]], lot: float) -> dict[str, Any]:
+    """Diagnóstico das quebras de continuidade de um ativo (contagens e intervalos).
+
+    Para cada par quebrado: o `dir` do fill anterior, se o salto é de ao menos o tamanho
+    do fill anterior (um fill inteiro faltando, ou mudança de posição sem fill), se um dos
+    dois traz o campo `liquidation`, e o intervalo de tempo entre os dois fills.
+    """
+    prev_dir: Counter[str] = Counter()
+    jump: Counter[str] = Counter()
+    liquidation = 0
+    gaps: list[float] = []
+    for prev, nxt in pairwise(fills):
+        expected = float(prev["startPosition"]) + signed_size(prev)
+        diff = abs(float(nxt["startPosition"]) - expected)
+        if diff <= lot * (1 + 1e-9):
+            continue
+        prev_dir[str(prev.get("dir"))] += 1
+        jump[
+            "salto >= tamanho do fill anterior" if diff >= float(prev["sz"]) else "salto menor"
+        ] += 1
+        liquidation += ("liquidation" in prev) or ("liquidation" in nxt)
+        gaps.append((int(nxt["time"]) - int(prev["time"])) / 1000)
+    return {
+        "prev_dir": dict(prev_dir),
+        "jump": dict(jump),
+        "with_liquidation_field": liquidation,
+        "gaps_s": gaps,
+    }
 
 
 # ─── RF-VER-02: notional por ativo e regra D7 ────────────────────────────────

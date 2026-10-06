@@ -228,11 +228,14 @@ def run(ctx: Ctx) -> dict[str, Any]:
 
     wallets: list[str] = read_json(v02_path)["sampling"]["chosen"]
     rows: list[dict[str, Any]] = []
+    window_totals: dict[str, int] = dict.fromkeys(UNIVERSE, 0)
     for address in wallets:
         cache = ctx.path("fills", f"{address}.json")
         if not cache.exists():
             continue
         for fill in read_json(cache)["fills"]:
+            if fill["coin"] in UNIVERSE:
+                window_totals[fill["coin"]] += 1
             if fill["coin"] in UNIVERSE and day_of(int(fill["time"])) in days:
                 rows.append(
                     {
@@ -324,14 +327,26 @@ def run(ctx: Ctx) -> dict[str, Any]:
             invalid.append(coin)
         else:
             verdicts[coin] = "ok"
+    insufficient = bool(short)
+    if all(x == "não medido" for x in verdicts.values()) or insufficient:
+        status032 = "não medido"
+    else:
+        status032 = "a emendar" if invalid else "ok"
+    notes = []
+    if insufficient:
+        notes.append(
+            "amostra insuficiente (menos de 10.000 fills por ativo, ver CA-03.1): os valores são "
+            "indicativos, não uma validação"
+        )
+    if invalid:
+        notes.append("ativos inválidos: " + ", ".join(invalid))
     c032 = criterion(
-        "não medido"
-        if all(x == "não medido" for x in verdicts.values())
-        else ("a emendar" if invalid else "ok"),
+        status032,
         {
             "per_coin": {
                 c: {
                     "verdict": verdicts[c],
+                    "fills": v["fills"],
                     "pooled_p95_abs_dev_last_bps": v["pooled_p95_abs_dev_last"],
                     "pooled_p95_abs_dev_mid_bps": v["pooled_p95_abs_dev_mid"],
                     "days_over_threshold_last": v["days_over_threshold_last"],
@@ -341,7 +356,7 @@ def run(ctx: Ctx) -> dict[str, Any]:
         },
         "p95 do desvio absoluto em relação à mediana do dia > 10 bps: 'proxy inválido' (sai "
         "da Rota A)",
-        ("ativos inválidos: " + ", ".join(invalid)) if invalid else "",
+        "; ".join(notes),
     )
 
     result = {
@@ -352,6 +367,7 @@ def run(ctx: Ctx) -> dict[str, Any]:
         "wallets_used": len(wallets),
         "proxy_files": files,
         "per_coin": per_coin,
+        "window_fills_in_sample": window_totals,
         "criteria": {"RF-VER-03 CA-03.1": c031, "RF-VER-03 CA-03.2": c032},
     }
     write_json(ctx.path("results", "v03.json"), result)

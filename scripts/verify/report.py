@@ -121,7 +121,9 @@ def short(cid: str, c: dict[str, Any]) -> str:
                 f"{k} {v['fills']:,}" for k, v in m["per_coin"].items()
             )
         if cid.endswith("CA-03.2"):
-            return ", ".join(f"{k}: {v['verdict']}" for k, v in m["per_coin"].items())
+            return ", ".join(
+                f"{k}: {v['verdict']} (n={v['fills']})" for k, v in m["per_coin"].items()
+            )
         if cid.endswith("CA-04.1"):
             t = m["total"]["default"]
             return f"{m['duration_min']:.0f} min; 45 dias = {size(t['bytes_45d'])} bruto / {size(t['gzip_bytes_45d'])} gzip"
@@ -132,6 +134,39 @@ def short(cid: str, c: dict[str, Any]) -> str:
     except (KeyError, ValueError, TypeError):
         return c.get("note") or "ver detalhe"
     return c.get("note") or "—"
+
+
+def size_and_break_tables(
+    by_size: dict[str, int], breaks: dict[str, Any], pairs_broken: int
+) -> str:
+    """Conciliação por tamanho de episódio e diagnóstico das quebras de continuidade."""
+    out = ""
+    if by_size:
+        rows = []
+        for band in ("2", "3-4", "5+"):
+            n = by_size.get(f"{band}|tested", 0)
+            if n:
+                rows.append(
+                    [
+                        f"{band} fills",
+                        n,
+                        f"{by_size.get(f'{band}|gross@1e-06', 0)} ({pct(by_size.get(f'{band}|gross@1e-06', 0) / n)})",
+                        f"{by_size.get(f'{band}|gross@0.001', 0)} ({pct(by_size.get(f'{band}|gross@0.001', 0) / n)})",
+                    ]
+                )
+        out += "Hipótese bruta por número de fills do episódio:\n\n"
+        out += (
+            table(["Episódio", "Testados", "Concilia em 1e-6", "Concilia em 1e-3"], rows) + "\n\n"
+        )
+    if breaks and pairs_broken:
+        out += (
+            f"Diagnóstico das {pairs_broken} quebras de continuidade: `dir` do fill anterior "
+            f"{breaks['prev_dir']}; tamanho do salto {breaks['jump']}; com campo `liquidation` em um "
+            f"dos dois fills: {breaks['with_liquidation_field']}; intervalo entre os dois fills: "
+            f"mediana {num(breaks['gap_s_p50'], 0)} s, máximo {num(breaks['gap_s_max'], 0)} s, "
+            f"{breaks['gap_s_under_1']} com menos de 1 s.\n\n"
+        )
+    return out
 
 
 def ladder_tables(ladder: dict[str, dict[str, int]], per_fill: dict[str, int]) -> str:
@@ -413,6 +448,13 @@ def build(ctx: Ctx) -> Path:
             w(table(["Contagem", "Valor"], [[k, v] for k, v in sorted(c.items())]) + "\n")
             w(f"Leitura: **{m['conciliation']}** — {m['detail']}.\n")
             w(ladder_tables(m["ladder"], m["per_fill"]))
+            w(
+                size_and_break_tables(
+                    v01["closed_pnl_by_size"],
+                    v01["break_diagnostics"],
+                    v01["continuity"]["pairs_broken"],
+                )
+            )
         agg = v01["aggregate_by_time"]
         w("### `aggregateByTime` falso e verdadeiro (janela de seleção)\n")
         w(
@@ -470,6 +512,13 @@ def build(ctx: Ctx) -> Path:
         w(
             ladder_tables(
                 v02["extended_sample_closed_pnl_ladder"], v02["extended_sample_closed_pnl_per_fill"]
+            )
+        )
+        w(
+            size_and_break_tables(
+                v02["extended_sample_closed_pnl_by_size"],
+                v02["extended_sample_break_diagnostics"],
+                v02["extended_sample_continuity"]["pairs_broken"],
             )
         )
     if v04 and v04.get("trades_users", {}).get("available"):
@@ -676,6 +725,15 @@ def build(ctx: Ctx) -> Path:
                 f"{num(v['pooled_p95_abs_dev_last'])} bps (`last`), {num(v['pooled_p95_abs_dev_mid'])} bps (`mid`). "
                 f"Dias acima de 10 bps: {v['days_over_threshold_last'] or 'nenhum'}.\n"
             )
+
+    if v03 and v03.get("window_fills_in_sample"):
+        t = v03["window_fills_in_sample"]
+        w(
+            "Para dimensionar o déficit de CA-03.1: nos 62 dias da janela inteira, a mesma amostra de "
+            "carteiras tem "
+            + ", ".join(f"{c} {n:,}" for c, n in t.items())
+            + " fills (contra os 10.000 por ativo que o critério pede).\n"
+        )
 
     # ─── RF-VER-04 ────────────────────────────────────────────────────────────
     w("## RF-VER-04 — orçamento de dados\n")

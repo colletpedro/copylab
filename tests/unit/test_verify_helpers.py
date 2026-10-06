@@ -185,6 +185,7 @@ def test_classify_coin() -> None:
     assert analysis.classify_coin("xyz:GOLD", perps) == "hip3"
     assert analysis.classify_coin("@107", perps) == "spot"
     assert analysis.classify_coin("PURR/USDC", perps) == "spot"
+    assert analysis.classify_coin("#5101", perps) == "outcome"
 
 
 @pytest.mark.unit
@@ -443,3 +444,34 @@ def test_pagination_keeps_fills_of_one_millisecond_split_across_pages() -> None:
     fills = [_at(1, 1), _at(2, 2), _at(2, 3), _at(2, 4)]
     got = common.collect_fills(_FakeFillsClient(fills, 3), "0x0", 0, 10)
     assert got.count == 4
+
+
+@pytest.mark.unit
+def test_concordance_by_size_buckets_episodes_by_number_of_fills() -> None:
+    """Um episódio de 2 fills (compra 1 a 100, vende 1 a 110: realizado 10) e o de 4 fills
+    do fixture acima (realizado 24). Com `closedPnl` correto em ambos, cada faixa concilia."""
+    two = [
+        _fill("B", 1, 100, 0.0, time=1),
+        _fill("A", 1, 110, 1.0, closed_pnl=10.0, time=2),
+    ]
+    four = _long_episode((0.0, 0.0, 15.0, 9.0))
+    episodes = analysis.build_episodes(two + four, 0.001)
+    out = analysis.concordance_by_size(episodes)
+    assert out["2|tested"] == 1
+    assert out["2|gross@1e-06"] == 1
+    assert out["3-4|tested"] == 1
+    assert out["3-4|gross@1e-06"] == 1
+
+
+@pytest.mark.unit
+def test_continuity_breaks_reports_direction_jump_and_gap() -> None:
+    """f1 compra 1 a partir de 0 (esperado 1) e f2 começa em 5: salto de 4, maior que o
+    tamanho do fill anterior (1), 10 s depois, com `liquidation` no segundo."""
+    f1 = _fill("B", 1, 100, 0.0, time=1_000)
+    f2 = _fill("B", 1, 100, 5.0, time=11_000)
+    f2["liquidation"] = {"method": "market"}
+    out = analysis.continuity_breaks([f1, f2], 0.001)
+    assert out["prev_dir"] == {"x": 1}
+    assert out["jump"] == {"salto >= tamanho do fill anterior": 1}
+    assert out["with_liquidation_field"] == 1
+    assert out["gaps_s"] == [10.0]

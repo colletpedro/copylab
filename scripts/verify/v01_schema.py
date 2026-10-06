@@ -23,9 +23,12 @@ from analysis import (
     build_episodes,
     classify_coin,
     concordance,
+    concordance_by_size,
+    continuity_breaks,
     continuity_pairs,
     field_coverage,
     fill_level_concordance,
+    percentile,
     unexpected_fields,
 )
 from common import (
@@ -51,11 +54,19 @@ _ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
 #: Leitura dos resultados de CA-01.4 (critério deste script, não da spec): uma hipótese
 #: "concilia" se explica pelo menos esta fração dos episódios testados.
-CONCILIATION_THRESHOLD = 0.95
+#: Uma hipótese "descreve" `closedPnl` se vence a segunda colocada por tanto (pontos percentuais).
+SEPARATION_MARGIN = 0.5
 DECISION_TOLERANCE = "0.001"
 MIN_EPISODES_TO_DECIDE = 5
 #: Tolerâncias relativas e absolutas (diagnóstico de CA-01.4); a da spec é a primeira (1e-6).
 TOLERANCE_LADDER = (1e-6, 1e-4, 1e-3, 1e-2)
+_HEAVY_KEYS = (
+    "closed_pnl",
+    "closed_pnl_ladder",
+    "closed_pnl_per_fill",
+    "closed_pnl_by_size",
+    "break_diagnostics",
+)
 
 
 def criterion(status: str, measured: Any, rule: str, note: str = "") -> dict[str, Any]:
@@ -117,6 +128,11 @@ def continuity_and_episodes(
     conc: Counter[str] = Counter()
     ladder: dict[str, Counter[str]] = {f"{t:g}": Counter() for t in TOLERANCE_LADDER}
     per_fill: Counter[str] = Counter()
+    by_size: Counter[str] = Counter()
+    break_dir: Counter[str] = Counter()
+    break_jump: Counter[str] = Counter()
+    break_liq = 0
+    break_gaps: list[float] = []
     n_series = n_series_broken = n_wallets = n_wallets_broken = 0
     for rec in records:
         by_coin: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -140,6 +156,12 @@ def continuity_and_episodes(
             for tol in TOLERANCE_LADDER:
                 ladder[f"{tol:g}"].update(concordance(episodes, rel_tol=tol, abs_tol=tol))
             per_fill.update(fill_level_concordance(episodes))
+            by_size.update(concordance_by_size(episodes))
+            diag = continuity_breaks(fills, lot)
+            break_dir.update(diag["prev_dir"])
+            break_jump.update(diag["jump"])
+            break_liq += diag["with_liquidation_field"]
+            break_gaps.extend(diag["gaps_s"])
         n_wallets_broken += wallet_broken
     checked = pairs["pairs"]
     return {
@@ -154,6 +176,15 @@ def continuity_and_episodes(
         "closed_pnl": dict(conc),
         "closed_pnl_ladder": {k: dict(v) for k, v in ladder.items()},
         "closed_pnl_per_fill": dict(per_fill),
+        "closed_pnl_by_size": dict(by_size),
+        "break_diagnostics": {
+            "prev_dir": dict(break_dir),
+            "jump": dict(break_jump),
+            "with_liquidation_field": break_liq,
+            "gap_s_p50": percentile(break_gaps, 50) if break_gaps else None,
+            "gap_s_max": max(break_gaps) if break_gaps else None,
+            "gap_s_under_1": sum(g < 1 for g in break_gaps),
+        },
     }
 
 
@@ -174,7 +205,8 @@ def read_conciliation(ladder: dict[str, dict[str, int]], strict: dict[str, int])
     rates = {
         name: loose.get(f"{name}{suffix}", 0) / denom for name in ("gross", "net_all", "net_close")
     }
-    best = max(rates, key=lambda name: rates[name])
+    ordered = sorted(rates, key=lambda name: rates[name], reverse=True)
+    best, runner_up = ordered[0], ordered[1]
     scope = f"{denom} episódios em que a taxa importa" if suffix else f"{denom} episódios"
     text = (
         ", ".join(f"{name} {rate:.1%}" for name, rate in rates.items())
@@ -186,9 +218,9 @@ def read_conciliation(ladder: dict[str, dict[str, int]], strict: dict[str, int])
         text += f"; na tolerância da spec (1e-6), {best} concilia {strict_rate:.1%}"
     if not suffix:
         return "não medido", f"poucos episódios em que a taxa distingue as hipóteses; {text}"
-    if rates[best] >= CONCILIATION_THRESHOLD:
+    if rates[best] - rates[runner_up] >= SEPARATION_MARGIN:
         return f"ok:{best}", text
-    return "a emendar", f"nenhuma hipótese concilia; {text}"
+    return "a emendar", f"as hipóteses não se separam; {text}"
 
 
 def trades_users_check(ws_dir: Path, coin: str = "BTC", minutes: float = 10.0) -> dict[str, Any]:
@@ -369,13 +401,11 @@ def run(ctx: Ctx, client: HlClient) -> dict[str, Any]:
             "RF-VER-01 CA-01.4": c014,
         },
         "aggregate_by_time": {"per_wallet": agg_rows, "total_false": n_false, "total_true": n_true},
-        "continuity": {
-            k: v
-            for k, v in cont.items()
-            if k not in ("closed_pnl", "closed_pnl_ladder", "closed_pnl_per_fill")
-        },
+        "continuity": {k: v for k, v in cont.items() if k not in _HEAVY_KEYS},
         "closed_pnl_ladder": cont["closed_pnl_ladder"],
         "closed_pnl_per_fill": cont["closed_pnl_per_fill"],
+        "closed_pnl_by_size": cont["closed_pnl_by_size"],
+        "break_diagnostics": cont["break_diagnostics"],
         "unexpected_fields": dict(unexpected_fields(all_fills)),
         "fills_sharing_a_tid_within_wallet": sum(
             len(r["fills"]) - len({f.get("tid") for f in r["fills"]}) for r in records

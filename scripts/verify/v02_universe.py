@@ -44,6 +44,7 @@ from common import (
     write_json,
 )
 from v01_schema import (
+    _HEAVY_KEYS,
     continuity_and_episodes,
     criterion,
     read_conciliation,
@@ -287,11 +288,9 @@ def run(ctx: Ctx, client: HlClient) -> dict[str, Any]:
             "in_window_fills_total": len(all_fills),
             "wallet_summaries": [wallet_summary(r) for r in records],
         },
-        "extended_sample_continuity": {
-            k: v
-            for k, v in cont.items()
-            if k not in ("closed_pnl", "closed_pnl_ladder", "closed_pnl_per_fill")
-        },
+        "extended_sample_continuity": {k: v for k, v in cont.items() if k not in _HEAVY_KEYS},
+        "extended_sample_closed_pnl_by_size": cont["closed_pnl_by_size"],
+        "extended_sample_break_diagnostics": cont["break_diagnostics"],
         "extended_sample_closed_pnl_ladder": cont["closed_pnl_ladder"],
         "extended_sample_closed_pnl_per_fill": cont["closed_pnl_per_fill"],
         "extended_sample_closed_pnl": {
