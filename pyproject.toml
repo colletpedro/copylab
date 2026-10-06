@@ -1,0 +1,142 @@
+[project]
+name = "copylab"
+version = "0.1.0"
+description = "Estudo de simulação de copy trading na Hyperliquid."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Pedro Collet", email = "pedroocollet@gmail.com" }]
+keywords = ["copy-trading", "simulation", "hyperliquid", "quantitative-finance"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    "typer>=0.12",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "structlog>=24.4",
+]
+
+[project.scripts]
+copylab = "copylab.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "pytest-mock>=3.14",
+    "mypy>=1.11",
+    "ruff>=0.6",
+    "pre-commit>=3.8",
+    "pip-audit>=2.7",
+    "pytest-randomly>=4.1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/copylab"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ruff — lint + formatação + import sort
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+# `specs/` fica fora do formatador: esta versão do ruff reescreve blocos
+# ```python dentro de Markdown, e as specs são fonte da verdade — ADRs são
+# declarados imutáveis em CLAUDE.md §2. Documento normativo não é reformatado
+# por ferramenta.
+extend-exclude = [".venv", "specs"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "SIM", # flake8-simplify
+    "RUF", # regras próprias do ruff
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["copylab"]
+
+[tool.ruff.lint.flake8-bugbear]
+# Typer declara defaults via chamada de função no parâmetro; é idiomático nele.
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# mypy — RNF-05: tipagem verificada em modo estrito
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+mypy_path = "src"
+# Sem isto, dois `conftest.py` (tests/ e tests/integration/) colidem no mesmo
+# nome de módulo ("conftest") e o mypy para antes de checar qualquer coisa.
+# Com bases explícitas, cada um vira `tests.conftest` e
+# `tests.integration.conftest`.
+explicit_package_bases = true
+namespace_packages = true
+
+[tool.pydantic-mypy]
+init_typed = true
+init_forbid_extra = true
+warn_required_dynamic_aliases = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pytest
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+    # RNF-06: a suíte default roda offline. Teste de integração é desmarcado
+    # aqui; `make test-integration` sobrescreve este filtro.
+    "-m",
+    "not integration",
+]
+markers = [
+    "unit: teste isolado, sem I/O e sem rede — roda sempre",
+    "integration: exige serviço ou rede externos; desmarcado por default",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# coverage — RNF-02: mínimo de 85%, com ramos, em seleção, simulador e analytics
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+# O piso vale só onde o erro custa dinheiro: a escolha de carteiras, a
+# simulação da cópia e a medição. Os demais pacotes não entram no cálculo de
+# propósito.
+source_pkgs = ["copylab.selection", "copylab.sim", "copylab.analytics"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+# Enquanto os pacotes medidos estão vazios, o relatório os pula em vez de
+# acusar 0/0. É o que o quantlab fazia na Fase 0; ver HANDOFF.md.
+skip_empty = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
