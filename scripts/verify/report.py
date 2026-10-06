@@ -257,26 +257,25 @@ def build(ctx: Ctx) -> Path:
             ],
         ]
     w(table(["Item", "Valor"], meta_rows) + "\n")
-    stats = [(n, r) for n, r in (("v01", v01), ("v02", v02)) if r]
-    if stats:
+    usage_path = ctx.path("results", "api_usage.json")
+    usage = read_json(usage_path) if usage_path.exists() else None
+    if usage:
         w(
             "**Uso da API de informação** (orçamento de peso da verificação: "
-            f"{int(stats[0][1]['budget']['limit'])}/min; teto documentado: {API_WEIGHT_LIMIT_PER_MIN}/min)\n"
+            f"{usage['v01']['limit']}/min; teto documentado: {API_WEIGHT_LIMIT_PER_MIN}/min)\n"
         )
-        rows = []
-        for name, r in stats:
-            cs, b = r["client_stats"], r["budget"]
-            rows.append(
-                [
-                    name,
-                    cs.get("requests", 0),
-                    int(cs.get("weight", 0)),
-                    cs.get("http_429", 0),
-                    cs.get("retries_5xx", 0) + cs.get("retries_transport", 0),
-                    f"{b['peak']:.0f}",
-                    f"{b['waited_s'] / 60:.1f} min",
-                ]
-            )
+        rows = [
+            [
+                name,
+                u["requests"],
+                u["weight"],
+                u["http_429"],
+                u["retries"],
+                u["peak"],
+                f"{u['waited_min']:.1f} min",
+            ]
+            for name, u in (("v01", usage["v01"]), ("v02", usage["v02"]))
+        ]
         w(
             table(
                 [
@@ -294,7 +293,9 @@ def build(ctx: Ctx) -> Path:
         )
         w(
             "O pico é o maior peso acumulado numa janela deslizante de 60 s, contado com a reserva "
-            "pessimista (120 por página de fills) antes de a resposta chegar.\n"
+            "pessimista (120 por página de fills) antes de a resposta chegar. "
+            + usage["note"]
+            + "\n"
         )
 
     w("## Resumo dos 12 critérios\n")
