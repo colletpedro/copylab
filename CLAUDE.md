@@ -58,7 +58,7 @@ Qualquer conveniência que dê a um componente acesso ao futuro, mesmo indireto,
 
 - **Nenhuma chave privada, nenhuma assinatura e nenhum endpoint de ordem existem neste repositório.** Um teste de arquitetura sobre os imports garante isso (RNF-09). O piloto com dinheiro real tem spec própria e não começa aqui.
 - Respeite 1.200 de peso por minuto por IP.
-- A posição do líder é reconstruída dos fills. Quebra de continuidade torna a carteira inelegível; nunca é remendada.
+- A posição do líder é reconstruída dos fills, sempre não agregados. Na seleção, quebra de continuidade torna a carteira inelegível. Na avaliação, a mudança não observada é incorporada no fill seguinte e contada. Em nenhum caso a posição é remendada ou interpolada.
 
 ### ADR-0005 — o gate do piloto é verificação de consistência
 
