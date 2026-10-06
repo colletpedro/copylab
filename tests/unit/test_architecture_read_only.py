@@ -85,7 +85,17 @@ SCRIPTS_ROOT: Final = SRC_ROOT.parents[1] / "scripts"
 
 #: Scripts que a verificação de dados declara, relativos a `scripts/`. Escritos à mão
 #: de propósito, como `EXPECTED_SUBPACKAGES`: sumir com um exige editar este teste.
-EXPECTED_SCRIPTS: Final = ("verify/common.py",)
+EXPECTED_SCRIPTS: Final = (
+    "verify/common.py",
+    "verify/analysis.py",
+    "verify/record.py",
+    "verify/v01_schema.py",
+    "verify/v02_universe.py",
+    "verify/v03_proxy.py",
+    "verify/v04_budget.py",
+    "verify/report.py",
+    "verify/run.py",
+)
 
 #: (arquivo, linha, módulo proibido)
 Violation = tuple[Path, int, str]
