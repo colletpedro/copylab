@@ -28,7 +28,7 @@ import subprocess
 import time
 from collections import Counter, deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -378,6 +378,10 @@ class Collected:
     first_time: int | None = None
     #: `True` se a contagem parou cedo porque passou de `stop_after`.
     capped: bool = False
+    #: Com `keep=True`: índice, em `fills`, do primeiro fill novo de cada página a partir da
+    #: segunda. É onde a coleta emenda uma página na outra. A coleta original (RF-VER-01 a 04)
+    #: não guardava isto; RF-VER-05 CA-05.1 recoleta carteiras para medi-lo.
+    boundaries: list[int] = field(default_factory=list)
 
 
 def collect_fills(
@@ -408,6 +412,7 @@ def collect_fills(
     boundary: Counter[tuple[Any, ...]] = Counter()
     count = pages = 0
     first_time: int | None = None
+    boundaries: list[int] = []
     while True:
         page = client.user_fills(address, cursor, end_ms, aggregate=aggregate)
         pages += 1
@@ -425,12 +430,14 @@ def collect_fills(
             break
         count += len(fresh)
         if keep:
+            if pages > 1:
+                boundaries.append(len(kept))
             kept.extend(fresh)
         cursor = max(int(f["time"]) for f in page)
         boundary = Counter(_fill_key(f) for f in page if int(f["time"]) == cursor)
         if stop_after is not None and count > stop_after:
-            return Collected(kept, count, pages, first_time, capped=True)
-    return Collected(kept, count, pages, first_time)
+            return Collected(kept, count, pages, first_time, capped=True, boundaries=boundaries)
+    return Collected(kept, count, pages, first_time, boundaries=boundaries)
 
 
 def fetch_wallet(ctx: Ctx, client: HlClient, address: str) -> dict[str, Any]:

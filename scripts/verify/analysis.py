@@ -382,6 +382,56 @@ def continuity_breaks(fills: Sequence[dict[str, Any]], lot: float) -> dict[str, 
     }
 
 
+def continuity_break_pairs(fills: Sequence[dict[str, Any]], lot: float) -> list[tuple[int, int]]:
+    """Índices `(i, i+1)`, na série de um ativo, dos pares que quebram a continuidade."""
+    return [
+        (i, i + 1)
+        for i, (prev, nxt) in enumerate(pairwise(fills))
+        if abs(float(nxt["startPosition"]) - (float(prev["startPosition"]) + signed_size(prev)))
+        > lot * (1 + 1e-9)
+    ]
+
+
+def size_band(n_fills: int) -> str:
+    """Faixa de número de fills de um episódio: `2`, `3-4` ou `5+`."""
+    return "2" if n_fills <= 2 else ("3-4" if n_fills <= 4 else "5+")
+
+
+def pnl_divergence_bps(episodes: Iterable[Episode]) -> list[tuple[int, float]]:
+    """RF-VER-05 CA-05.2: por episódio fechado e íntegro, `(nº de fills, razão em bps)`.
+
+    A razão é `|PnL reconstruído - soma dos closedPnl| / notional negociado no episódio`,
+    com o notional somando `px * sz` de todos os fills do episódio. **Só a razão sai**
+    (regra 2 do prompt 02): nenhum valor de PnL é devolvido.
+    """
+    out: list[tuple[int, float]] = []
+    for episode in episodes:
+        if episode.ended != "flat" or not episode.clean:
+            continue
+        notional = sum(float(f["px"]) * float(f["sz"]) for f in episode.fills)
+        if notional <= 0:
+            continue
+        reported = sum(float(f["closedPnl"]) for f in episode.fills)
+        gap = abs(reported - reconstruct_gross(episode.fills))
+        out.append((len(episode.fills), gap / notional * 10_000))
+    return out
+
+
+def ratio_summary(values: Sequence[float], threshold: float = 1.0) -> dict[str, Any]:
+    """Mediana, p95, p99, máximo e fração acima de `threshold`, de uma lista de razões."""
+    if not values:
+        return {"n": 0}
+    return {
+        "n": len(values),
+        "median": percentile(values, 50),
+        "p95": percentile(values, 95),
+        "p99": percentile(values, 99),
+        "max": max(values),
+        "above": sum(v > threshold for v in values),
+        "fraction_above": sum(v > threshold for v in values) / len(values),
+    }
+
+
 # ─── RF-VER-02: notional por ativo e regra D7 ────────────────────────────────
 
 

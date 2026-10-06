@@ -93,6 +93,7 @@ EXPECTED_SCRIPTS: Final = (
     "verify/v02_universe.py",
     "verify/v03_proxy.py",
     "verify/v04_budget.py",
+    "verify/v05_complement.py",
     "verify/report.py",
     "verify/run.py",
 )

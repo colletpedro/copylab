@@ -475,3 +475,54 @@ def test_continuity_breaks_reports_direction_jump_and_gap() -> None:
     assert out["jump"] == {"salto >= tamanho do fill anterior": 1}
     assert out["with_liquidation_field"] == 1
     assert out["gaps_s"] == [10.0]
+
+
+@pytest.mark.unit
+def test_pagination_records_where_each_page_joins_the_next() -> None:
+    """Tempos [1..5] com páginas de 2: página 1 [1, 2]; página 2 (a partir de 2) traz o 3;
+    página 3 (a partir de 3) traz o 4; página 4 traz o 5. Os fills novos de cada página a
+    partir da segunda começam nos índices 2, 3 e 4."""
+    fills = [_at(t, t) for t in range(1, 6)]
+    got = common.collect_fills(_FakeFillsClient(fills, 2), "0x0", 0, 10)
+    assert got.boundaries == [2, 3, 4]
+
+
+@pytest.mark.unit
+def test_pnl_divergence_is_a_ratio_to_the_traded_notional() -> None:
+    """Episódio do fixture: PnL reconstruído 24; com `closedPnl` somando 23,9 a diferença é 0,1.
+    Notional = 2 x 100 + 2 x 110 + 1 x 120 + 3 x 108 = 864. Razão = 0,1 / 864 x 1e4 = 1,1574 bps.
+    Com `closedPnl` somando 24 a razão é zero."""
+    off = analysis.build_episodes(_long_episode((0.0, 0.0, 15.0, 8.9)), 0.001)
+    exact = analysis.build_episodes(_long_episode((0.0, 0.0, 15.0, 9.0)), 0.001)
+    ((n, bps),) = analysis.pnl_divergence_bps(off)
+    assert n == 4
+    assert bps == pytest.approx(0.1 / 864 * 1e4)
+    assert analysis.pnl_divergence_bps(exact)[0][1] == pytest.approx(0.0, abs=1e-9)
+
+
+@pytest.mark.unit
+def test_pnl_divergence_skips_open_and_inverted_episodes() -> None:
+    inverted = [_fill("B", 1, 100, 0.0, time=1), _fill("A", 3, 100, 1.0, time=2)]
+    assert analysis.pnl_divergence_bps(analysis.build_episodes(inverted, 0.001)) == []
+
+
+@pytest.mark.unit
+def test_ratio_summary_and_size_band() -> None:
+    summary = analysis.ratio_summary([0.0, 0.5, 1.0, 2.0, 10.0])
+    assert summary["n"] == 5
+    assert summary["median"] == pytest.approx(1.0)
+    assert summary["max"] == pytest.approx(10.0)
+    assert summary["above"] == 2  # 2,0 e 10,0; 1,0 não passa de 1
+    assert summary["fraction_above"] == pytest.approx(0.4)
+    assert [analysis.size_band(n) for n in (2, 3, 4, 5, 9)] == ["2", "3-4", "3-4", "5+", "5+"]
+
+
+@pytest.mark.unit
+def test_continuity_break_pairs_returns_the_series_indexes() -> None:
+    fills = [
+        _fill("B", 1, 100, 0.0),
+        _fill("B", 1, 100, 1.0),
+        _fill("B", 1, 100, 9.0),
+        _fill("B", 1, 100, 10.0),
+    ]
+    assert analysis.continuity_break_pairs(fills, 0.001) == [(1, 2)]
