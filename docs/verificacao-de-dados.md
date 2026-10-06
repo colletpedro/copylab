@@ -528,3 +528,191 @@ Cada item diz o que faltou e por quê.
 - **Dados brutos e a regra 2.** `data/verify/` (fora do git) guarda os fills da janela de seleção como a API os devolveu, o que inclui o campo `closedPnl` de cada fill; nenhum PnL derivado foi gravado. O leaderboard foi guardado só com `ethAddress` e `accountValue` (e o hash do corpo bruto), sem `windowPerformances`. De fills anteriores à janela e posteriores ao corte guardam-se só contagem e, para os anteriores, o instante do mais antigo.
 - **Reprodutibilidade.** A amostra depende do snapshot do leaderboard (que muda de hora em hora: entre a exploração e a execução a lista passou de 47.453 para 47.430 linhas); o `sha256` do snapshot está na tabela de execução. A coleta (rede) rodou das 04:30 às 05:30 UTC de 2026-10-06 com o código `cc93868`; depois dela, a análise foi refeita offline três vezes sobre os mesmos dados, sem nova requisição à API de informação, com correções de classificação e de relatório (commits `ab19d51` e `b5bb55b`). O relatório registra o hash da última geração.
 - **Custo de coletar.** Com orçamento de 1.000 de peso por minuto, a amostra de 20 custou 9.383 de peso e a de 100 custou 52.415 (inclui 100 consultas de `userRole`, 6.000 de peso); a média é de cerca de 534 de peso de fills por carteira ativa na janela (máximo 1.064). Para 500 carteiras, se todas fossem ativas, seriam da ordem de 300.000 de peso (cerca de 5 horas no mesmo orçamento); como quase metade das candidatas não opera na janela, o custo real ficaria entre 2,5 e 5 horas (conta sobre os números medidos, não uma medida).
+
+---
+
+## Verificação complementar (RF-VER-05)
+
+Código `db946ac+dirty`. Mesmas regras de RF-VER-01 a RF-VER-04: somente leitura, nada de desempenho, nada de conteúdo da janela de avaliação (toda consulta é cortada em 2026-09-01), semente `20261005`. Uso da API de informação: 227 requisições, peso 7877, pico de 1000 em 60 s (orçamento 1000), 0 respostas 429.
+
+| Critério | Regra da spec | Medido | Status |
+|---|---|---|---|
+| `CA-05.1` | quantas quebras coincidem com fronteira de página; em 10 quebras sorteadas, uma nova consulta de 1 hora devolve fill que faltava? Se sim, o defeito é da coleta | 100 quebras; 16 atravessam uma fronteira de página; 0 de 10 consultas devolveram fill que faltava | **ok** |
+| `CA-05.2` | mediana, p95, p99 e máximo da razão módulo(reconstruído - closedPnl) / notional, em bps, por faixa de fills, e a fração acima de 1 bp; acima de 5% RF-ING-04 CA-04.2 volta para emenda | 978 episódios; mediana 0.0021, p95 0.400, p99 1.407, máximo 3.263 bps; 1.7% acima de 1 bp | **ok** |
+| `CA-05.3` | formato da resposta de fundingHistory e se há uma taxa para cada hora cheia | 168 registros em 168 horas; intervalo mediano 3600.000 s; horas com registro: 168/168 | **ok** |
+| `CA-05.4` | 30 perpétuos de maior notional, fills e equivalente na Binance; carteiras com 50% ou mais do notional no universo, para dois universos (informativo) | F9 com BTC, ETH e SOL: 6 de 54; com os 27 listados com equivalente: 24 de 54 | **ok** |
+
+### CA-05.1 — quebras de continuidade e paginação
+
+**Como a coleta paginou:** inclusivo (startTime = instante do último fill da página anterior); fills não agregados; até 2000 por página; a repetição do milissegundo da fronteira é descartada por multiconjunto de chaves dos fills do milissegundo da fronteira. **A coleta original não guardou as fronteiras de página** e elas não foram reconstruídas por suposição: para medi-las, as carteiras com quebra foram **recoletadas** com a paginação instrumentada (segunda coleta, rotulada), e a recoleta foi comparada fill a fill com a primeira.
+
+| Carteira recoletada | Páginas | Fills na janela | Fronteiras de página | Idêntica à primeira coleta (fills e ordem) |
+|---|---|---|---|---|
+| `0x3a90705c017255731c3ecac6f5bc3cd9ac3fae8b` | 5 | 6,109 | 3 | sim |
+| `0x3af22be0e13429239a2bb6c60f70ecff6ebd5af3` | 5 | 6,039 | 3 | sim |
+| `0x3e02519a47cef3d4464944c4815fad9e5837e767` | 3 | 2,522 | 1 | sim |
+| `0x53f81d22b16ff1718ab8ee52bff0592685325f92` | 7 | 10,694 | 5 | sim |
+| `0x63d6cbd12a2984c211ff623074e9362e4520e902` | 2 | 965 | 0 | sim |
+| `0x64d8fdf7346337953c434824a84072dc53fcccd8` | 2 | 18 | 0 | sim |
+| `0x8c294aeb643f8099f3d15fb47e437edd72df4022` | 2 | 313 | 0 | sim |
+
+**100 quebras em 7 carteiras** (as duas amostras juntas, como em RF-VER-01 e RF-VER-02). **16 atravessam uma fronteira de página** (há uma fronteira entre os dois fills quebrados na lista da carteira) e **0 caem exatamente numa fronteira** (os dois fills são vizinhos na lista e a fronteira os separa).
+
+Pares que atravessam uma fronteira, por vão (posições entre os dois fills na lista da carteira):
+
+| Vão | Quebras que atravessam | Pares íntegros que atravessam |
+|---|---|---|
+| 1 | 1 de 891 | 10 de 20258 (0.05%) |
+| 2 a 10 | 0 de 8 | 0 de 247 (0.00%) |
+| 11 a 100 | 0 de 18 | 5 de 300 (1.67%) |
+| 101 a 1000 | 9 de 32 | 5 de 100 (5.00%) |
+| mais de 1000 | 7 de 8 | 11 de 15 (73.33%) |
+
+Consulta nova de cada quebra sorteada (intervalo entre os dois fills quebrados, 1 minuto de folga de cada lado, no máximo 2 páginas):
+
+| Quebra | Vão no tempo | Fills devolvidos | Fills já gravados no intervalo | Faltavam na coleta | Gravados e não devolvidos | Cobre o intervalo todo |
+|---|---|---|---|---|---|---|
+| `0x3e02519a…` ZEC | 27.8 h | 20 | 20 | 0 | 0 | sim |
+| `0x53f81d22…` PUMP | 76.3 h | 286 | 286 | 0 | 0 | sim |
+| `0x53f81d22…` ASTER | 64.3 h | 198 | 198 | 0 | 0 | sim |
+| `0x53f81d22…` DOGE | 10.8 h | 113 | 113 | 0 | 0 | sim |
+| `0x3e02519a…` CASHCAT | 134.2 h | 122 | 122 | 0 | 0 | sim |
+| `0x3af22be0…` HYPE | 46.4 h | 548 | 548 | 0 | 0 | sim |
+| `0x53f81d22…` PUMP | 126.2 h | 1059 | 1059 | 0 | 0 | sim |
+| `0x53f81d22…` PUMP | 63.1 h | 412 | 412 | 0 | 0 | sim |
+| `0x3a90705c…` HYPE | 28.2 h | 48 | 48 | 0 | 0 | sim |
+| `0x3a90705c…` SOL | 13.6 h | 15 | 15 | 0 | 0 | sim |
+
+**Complemento, fora da spec:** as outras 90 quebras foram reconsultadas do mesmo jeito (32,437 fills devolvidos): 88 consultas cobriram o intervalo todo; **0 devolveram fill que faltava**; 0 deixaram de devolver fill já gravado.
+
+### CA-05.2 — divergência de PnL sobre o notional
+
+Razão `|PnL reconstruído - soma dos closedPnl| / notional negociado no episódio`, em bps, nos episódios fechados e íntegros (zero a zero, sem inversão, sem quebra) das duas amostras. **Só razões e contagens: nenhum valor de PnL é impresso ou gravado.**
+
+| Faixa | Episódios | Mediana (bps) | p95 (bps) | p99 (bps) | Máximo (bps) | Acima de 1 bp |
+|---|---|---|---|---|---|---|
+| 2 fills | 51 | 0.0000 | 0.000 | 0.000 | 0.000 | 0 (0.0%) |
+| 3-4 fills | 98 | 0.0000 | 0.059 | 1.547 | 1.597 | 2 (2.0%) |
+| 5+ fills | 829 | 0.0036 | 0.476 | 1.362 | 3.263 | 15 (1.8%) |
+| **todos** | 978 | 0.0021 | 0.400 | 1.407 | 3.263 | 17 (1.7%) |
+| amostra de RF-VER-01 (20) | 118 | 0.0003 | 0.174 | 0.836 | 1.597 | 1 (0.8%) |
+| amostra de RF-VER-02 (100) | 860 | 0.0029 | 0.474 | 1.439 | 3.263 | 16 (1.9%) |
+
+Por carteira: das 39 carteiras com episódio fechado e íntegro, 7 (17.9%) têm ao menos um episódio acima de 1 bp.
+
+### CA-05.3 — funding
+
+Formato conferido na documentação oficial (`POST /info`, `type = fundingHistory`, campos `coin`, `startTime`, `endTime` opcional; resposta com `coin`, `fundingRate`, `premium` e `time`). A documentação **não** informa o limite de registros por resposta, a ordenação nem a periodicidade.
+
+| Medida | Valor |
+|---|---|
+| Semana consultada (BTC; bloco sorteado com a semente) | 2026-07-29T00:00:00Z a 2026-08-05T00:00:00Z |
+| Registros devolvidos | 168 |
+| Campos devolvidos e tipos | {'coin': 'str', 'fundingRate': 'str', 'premium': 'str', 'time': 'int'} |
+| Intervalo entre registros (min / mediana / máx, s) | 3599.893 / 3600.000 / 3600.123 |
+| Deslocamento do registro dentro da hora (min a máx, ms) | 0 a 127 |
+| Horas cheias com ao menos um registro | 168 de 168 |
+| Horas com mais de um registro | nenhuma |
+| Registros fora das 168 horas | 0 |
+
+### CA-05.4 — ativos e F9
+
+Amostra de RF-VER-02: 100 carteiras, 54 com fills na janela. Notional somado de todos os fills da janela (volume, não desempenho). Existência do perpétuo na Binance conferida em 7 dias da janela (2026-07-01, 2026-07-10, 2026-07-18, 2026-07-19, 2026-07-26, 2026-08-04, 2026-08-31): "dias" é em quantos deles o arquivo diário do símbolo existe.
+
+| # | Ativo | Fills | Notional (todos os fills) | Notional (só perpétuos) | Símbolo na Binance | Dias | Equivalente |
+|---|---|---|---|---|---|---|---|
+| 1 | `HYPE` | 14,322 | 11.04% | 27.38% | `HYPEUSDT` | 7/7 | sim |
+| 2 | `BTC` | 2,739 | 9.34% | 23.17% | `BTCUSDT` | 7/7 | sim |
+| 3 | `ETH` | 2,189 | 5.41% | 13.43% | `ETHUSDT` | 7/7 | sim |
+| 4 | `ZEC` | 3,993 | 3.19% | 7.92% | `ZECUSDT` | 7/7 | sim |
+| 5 | `PUMP` | 5,284 | 2.82% | 6.98% | `PUMPUSDT` | 7/7 | sim |
+| 6 | `SOL` | 1,089 | 1.88% | 4.67% | `SOLUSDT` | 7/7 | sim |
+| 7 | `LIT` | 3,834 | 1.04% | 2.58% | `LITUSDT` | 7/7 | sim |
+| 8 | `ENA` | 1,658 | 0.98% | 2.44% | `ENAUSDT` | 7/7 | sim |
+| 9 | `CASHCAT` | 4,522 | 0.65% | 1.61% | — | 0/7 | não |
+| 10 | `INJ` | 1,419 | 0.44% | 1.10% | `INJUSDT` | 7/7 | sim |
+| 11 | `DOGE` | 547 | 0.42% | 1.04% | `DOGEUSDT` | 7/7 | sim |
+| 12 | `ASTER` | 581 | 0.34% | 0.84% | `ASTERUSDT` | 7/7 | sim |
+| 13 | `TRUMP` | 439 | 0.21% | 0.52% | `TRUMPUSDT` | 7/7 | sim |
+| 14 | `PENGU` | 621 | 0.19% | 0.46% | `PENGUUSDT` | 7/7 | sim |
+| 15 | `GRAM` | 537 | 0.18% | 0.44% | `GRAMUSDT` | 6/7 | parcial |
+| 16 | `VVV` | 437 | 0.18% | 0.44% | `VVVUSDT` | 7/7 | sim |
+| 17 | `AAVE` | 646 | 0.17% | 0.42% | `AAVEUSDT` | 7/7 | sim |
+| 18 | `FARTCOIN` | 669 | 0.16% | 0.39% | `FARTCOINUSDT` | 7/7 | sim |
+| 19 | `XRP` | 338 | 0.16% | 0.39% | `XRPUSDT` | 7/7 | sim |
+| 20 | `NEAR` | 513 | 0.13% | 0.33% | `NEARUSDT` | 7/7 | sim |
+| 21 | `ADA` | 275 | 0.12% | 0.29% | `ADAUSDT` | 7/7 | sim |
+| 22 | `XMR` | 943 | 0.12% | 0.29% | `XMRUSDT` | 7/7 | sim |
+| 23 | `UNI` | 460 | 0.11% | 0.27% | `UNIUSDT` | 7/7 | sim |
+| 24 | `kBONK` | 161 | 0.09% | 0.24% | `1000BONKUSDT` | 7/7 | sim |
+| 25 | `SYRUP` | 257 | 0.09% | 0.21% | `SYRUPUSDT` | 7/7 | sim |
+| 26 | `WLD` | 197 | 0.09% | 0.21% | `WLDUSDT` | 7/7 | sim |
+| 27 | `kPEPE` | 118 | 0.08% | 0.21% | `1000PEPEUSDT` | 7/7 | sim |
+| 28 | `LINK` | 295 | 0.06% | 0.16% | `LINKUSDT` | 7/7 | sim |
+| 29 | `PURR` | 839 | 0.05% | 0.11% | — | 0/7 | não |
+| 30 | `AVAX` | 94 | 0.04% | 0.09% | `AVAXUSDT` | 7/7 | sim |
+
+Carteiras com fills na janela que teriam 50% ou mais do notional no universo (denominador: notional de todos os fills da carteira):
+
+| Universo | Ativos | Carteiras | Com 50% ou mais | p25 da fração | Mediana | p75 |
+|---|---|---|---|---|---|---|
+| BTC, ETH e SOL | 3 | 54 | **6** | 0.0% | 0.0% | 21.4% |
+| todos os listados com equivalente | 27 | 54 | **24** | 0.0% | 34.8% | 74.7% |
+
+Listados só com equivalente em parte dos dias: ['GRAM'].
+
+### Medidas auxiliares (só contagens)
+
+| Medida | Valor |
+|---|---|
+| Carteiras analisadas (as duas amostras) | 120 |
+| Maior número de fills de uma carteira na janela de seleção | 13,223 |
+| Carteiras com mais de 10.000 / mais de 20.000 fills na janela | 5 / 0 |
+| Maior número de fills de uma carteira no mesmo milissegundo | 256 |
+| Carteiras com 20 ou mais fills no mesmo milissegundo | 43 |
+
+### O que contradiz a spec
+
+Este bloco confronta a RF-VER-05 com os requisitos 1.1 **propostos** e com o que a 1.0 assumia. Nada foi corrigido em spec.
+
+**1. Nenhuma quebra de continuidade é explicada pela paginação da coleta; a causa continua sem identificação.**
+Nas 7 carteiras com quebra, a recoleta com as fronteiras de página instrumentadas devolveu **exatamente os mesmos fills, na mesma ordem**, da primeira coleta (7 de 7). **Nenhuma das 100 quebras cai exatamente numa fronteira** e 16 atravessam uma. Nas 100 reconsultas do intervalo entre os dois fills quebrados (as 10 sorteadas e as 90 do complemento) **nenhuma devolveu um fill que faltava** na coleta. Pela regra de CA-05.1, o defeito não é nosso: a coleta não foi alterada, e as taxas de quebra seguem as de RF-VER-01 (0,82% dos pares na amostra de 20 e 0,16% na de 100). Isso é compatível com o que o texto da emenda diz ("a causa não foi identificada") e **não** o contradiz. As ressalvas estão em "O que não foi possível medir".
+
+**2. A regra de 1 bp do notional passa em 98,3% dos episódios, mas elimina cerca de 18% das carteiras.**
+Em 978 episódios fechados e íntegros, a razão entre a divergência de PnL e o notional tem mediana de 0,002 bps, p95 de 0,40, p99 de 1,41 e máximo de 3,26 bps; **1,7% dos episódios passam de 1 bp**, abaixo dos 5% que a própria emenda fixa para devolver RF-ING-04 CA-04.2 a emenda. Nos episódios de 2 fills a divergência é nula nos 51 (no máximo 9e-13 bps, ruído de ponto flutuante); nos de 3 a 4 fills, 2,0% passam de 1 bp; nos de 5 ou mais, 1,8%. Mas a regra emendada torna a **carteira** inelegível por divergência, e o limiar de 5% é por episódio: **7 das 39 carteiras com episódio fechado (17,9%)** têm ao menos um episódio acima de 1 bp. O D20 está sujeito a esta medida (a própria spec diz isso), e a medida o sustenta por episódio, mas o efeito por carteira é ordens de grandeza maior que a fração de episódios sugere.
+
+**3. O funding existe para as 168 horas, mas o registro não cai na hora cheia.**
+RF-ING-05 CA-05.1 pede "uma taxa de funding para cada hora cheia da janela". Em BTC, na semana de 2026-07-29 a 2026-08-05, a API devolveu **168 registros, exatamente um por hora**, com `coin`, `fundingRate`, `premium` e `time`. Porém `time` fica de **0 a 127 ms depois** do início da hora (o intervalo entre registros vai de 3.599,893 s a 3.600,123 s). Associar o registro à hora exige arredondar para baixo à hora; comparar `time` com o instante exato da hora cheia falharia em parte dos registros.
+
+**4. Com o universo por regra, F9 passa em 24 de 54 carteiras, contra 6 de 54 com BTC, ETH e SOL.**
+É o resultado que sustenta a direção da emenda (RF-SEL-08, D7). Com a lista dos 27 perpétuos do top 30 que têm equivalente na Binance em todos os 7 dias conferidos, a fração mediana do notional das carteiras no universo vai de 0,0% para 34,8% e o p75 de 21,4% para 74,7%. Quatro qualificações, que a decisão precisa ler junto:
+- **Circularidade.** Os 30 ativos foram escolhidos pelo notional da própria amostra em que F9 foi medido, o que infla a cobertura por construção. O texto de RF-SEL-08 CA-08.1 também forma o universo com os fills das candidatas (e usa 20 ativos, não 30), então a circularidade não é só desta verificação.
+- **"Equivalente" aqui é existência de arquivo diário**, não identidade de instrumento nem de escala de preço (`kBONK` e `kPEPE` foram associados a `1000BONKUSDT` e `1000PEPEUSDT` sem comparar preços).
+- **Ativo popular sem equivalente:** `CASHCAT`, o 9º em notional (4.522 fills), e `PURR` não têm perpétuo na Binance; `GRAM` tem arquivo em 6 dos 7 dias. A condição (i) de RF-SEL-08 tira, portanto, ativo muito negociado.
+- **Escala do critério (iii).** Só 6 dos 27 equivalentes têm 2.000 fills ou mais nesta amostra de 100 carteiras (`HYPE`, `BTC`, `ETH`, `ZEC`, `PUMP`, `LIT`), e `SOL` fica em 1.089. A condição é definida sobre 3.000 candidatas, então não dá para avaliá-la aqui.
+
+**5. Até 256 fills compartilham o mesmo milissegundo numa carteira.**
+43 das 120 carteiras têm ao menos um milissegundo com 20 ou mais fills. Isso sustenta a decisão da emenda de paginar com início inclusivo e deduplicação (RF-ING-02 CA-02.1): paginar a partir do milissegundo seguinte perderia fills sempre que uma página termina no meio de um milissegundo. O máximo observado (256) está bem abaixo do tamanho de página (2.000), e nem assim houve quebra de continuidade entre fills do mesmo milissegundo (0 de 100).
+
+**6. O limiar de 20.000 fills por carteira (RF-ING-02 CA-02.3) não eliminaria ninguém nestas amostras.**
+O maior número de fills na janela é 13.223, e 5 das 120 carteiras passam de 10.000. O limiar não é contradito, só não foi posto à prova por esta amostra.
+
+**7. Defeito meu na verificação, corrigido e registrado.** A primeira versão da reconsulta de CA-05.1 somava as páginas sem deduplicar o milissegundo da fronteira, e o complemento chegou a mostrar "4 consultas devolveram fill que faltava", todas de uma carteira com 10.694 fills. Era contagem em duplicata, não fill ausente. A reconsulta passou a usar a mesma paginação e deduplicação da coleta, há teste de regressão que cai com o defeito, e os números acima são os da versão corrigida.
+
+### O que não foi possível medir
+
+1. **Fill omitido pela própria API.** A reconsulta usa o mesmo endpoint da coleta; ela só prova que a *coleta* não perdeu nada que a API devolve. Não há aqui uma segunda fonte independente (outro endpoint, assinatura de usuário) para saber se a API omite fills. A causa das quebras (fill ausente na resposta ou mudança de posição sem fill) continua sem resposta.
+2. **Duas das 90 reconsultas do complemento não cobriram o intervalo todo.** São dois vãos de cerca de 20 dias, maiores que o que 2 páginas (≈ 4.000 fills) alcançam. Na parte coberta nada faltou, e a diferença de 1 e de 20 fills a menos nas duas devoluções é compatível com a segunda página cortar o último milissegundo no meio (há milissegundos com dezenas de fills), mas isso **não foi verificado**.
+3. **Fronteiras da coleta original.** Elas não foram guardadas. As posições das fronteiras vêm da recoleta das 7 carteiras com quebra, idêntica à original, o que é evidência de reprodutibilidade e não registro. Na comparação por vão, as faixas altas têm poucas quebras (32 em 101 a 1000 posições, 8 acima de 1000): em 101 a 1000, 9 de 32 quebras (28%) atravessam uma fronteira contra 5 de 100 pares íntegros (5%), diferença que o vão médio maior das quebras poderia explicar, mas **isso não foi testado**.
+4. **A origem da divergência de PnL.** Mede-se a divergência, não a causa. Há 39 carteiras com episódios fechados e íntegros; a regra de 5% é por episódio e o efeito por carteira (17,9%) vem de uma amostra pequena.
+5. **Funding além de BTC e de uma semana.** O limite de registros por resposta e a ordenação não constam da documentação oficial e não foram descobertos (168 registros couberam numa resposta). Os valores das taxas não foram lidos: só formato, intervalo e cobertura.
+6. **O universo por regra de verdade.** Esta amostra tem 100 carteiras (54 com fills na janela), contra um pool de 3.000 na emenda; as condições (iii) de volume mínimo e (iv) de proxy aprovado de RF-SEL-08 não foram avaliadas, e a equivalência com a Binance é só a existência do arquivo diário.
+7. **A janela de avaliação.** Por regra, o conteúdo de fills a partir de 2026-09-01 não foi lido: toda consulta foi cortada no corte. O funding foi consultado só em semana da janela de seleção.
+8. **Desempenho.** Nenhum PnL, retorno ou ranking de carteira foi calculado, impresso ou gravado. CA-05.2 devolve razões e contagens.
+
+### Notas de método (RF-VER-05)
+
+- **Execuções.** A RF-VER-05 rodou em 2026-10-06 por volta de 19:30 UTC; houve três execuções completas. A primeira reconsultou só as 10 quebras sorteadas (0 de 10 devolveram fill ausente); a segunda acrescentou o complemento e mostrou os 4 falsos positivos do defeito descrito acima; a terceira, com a correção, é a que alimenta esta seção. CA-05.2 e as medidas auxiliares foram recalculados depois, offline, sobre os mesmos dados.
+- **O que é decisão do script.** O complemento de 90 reconsultas (a spec pede 10); a comparação por faixa de vão; as medidas auxiliares; a escolha de 7 dias da janela para a existência dos símbolos na Binance (os 5 sorteados, mais o primeiro e o último dia); a definição de "fronteira" (início de página nova na lista de fills da carteira, com a distinção entre "atravessa" e "exatamente na fronteira"); e o bloco de 7 dias do funding (sorteado com a semente entre os 8 blocos completos da janela).
+- **Dados.** `data/verify/` (fora do git). Para as 7 carteiras recoletadas a janela de seleção foi paginada de novo; nada anterior à janela nem posterior ao corte foi lido.
+- **Custo.** 227 requisições e 7.877 de peso, pico de 1.000 em 60 s contra o orçamento de 1.000, nenhum HTTP 429.
