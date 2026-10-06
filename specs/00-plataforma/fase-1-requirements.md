@@ -1,8 +1,8 @@
 # Fase 1 (estudo de simulação) — Requisitos
 
-**Status:** aprovada — gate 1 concluído
-**Versão:** 1.0
-**Data:** 2026-10-05
+**Status:** aprovada na versão 1.0 — emenda 1.1 proposta, aguardando a verificação complementar (RF-VER-05)
+**Versão:** 1.1
+**Data:** 2026-10-06
 **Próximo gate:** `specs/00-plataforma/fase-1-design.md` (não iniciado), depois da verificação de dados de §4.1
 
 > **Nota de organização:** como na Fase 1 do quantlab, esta fase é uma fatia vertical que atravessa vários módulos, e o critério de aceitação é único ("o estudo roda ponta a ponta e não mente"). Este documento é a fonte da verdade da fase. O pacote se chama `copylab` (D16).
@@ -74,6 +74,9 @@ A fase também decide, por regra escrita antes dos dados, se um piloto com dinhe
 | **Semana ao vivo** | Os primeiros 7 dias de cobertura efetiva da janela de avaliação da Rota B. Nela a cópia continua simulada; o que é real é o livro gravado. |
 | **Gate do piloto** | Regra mecânica, computada uma única vez, que decide se o piloto com dinheiro real pode começar. |
 | **Piloto** | Operação com dinheiro real, limitada a US$ 50, que copia a coorte da Rota B. Fora desta spec. |
+| **Tipo de instrumento** | Classe de um fill: perpétuo do primeiro dex, perpétuo HIP-3 (nome com prefixo de dex, como `xyz:`), spot, token de resultado, ou outro. Só a primeira classe é copiada. |
+| **Pool de candidatas** | Carteiras do snapshot do leaderboard que passam em F2. Em outubro de 2026 eram cerca de 18 mil. |
+| **Universo** | Os ativos que o estudo copia. É formado por regra a cada seleção (RF-SEL-08), não por lista fixa. |
 
 ---
 
@@ -110,6 +113,16 @@ O que esta spec assume sobre a API foi lido em documentação. Precisa ser confi
 - **CA-04.2** — *Dado* o download de um dia de preço proxy por ativo, *quando* `verify` executa, *então* o relatório informa o tamanho e a extrapolação para todas as janelas.
 - **CA-04.3** — *Dado* que alguma extrapolação excede o orçamento de RNF-10, *quando* `verify` termina, *então* o status é "orçamento a emendar".
 
+**RF-VER-05 — Verificação complementar**
+Acrescentada na emenda 1.1, para fechar o que a primeira execução deixou em aberto. Valem as mesmas regras desta área.
+
+- **CA-05.1** — *Dado* as quebras de continuidade encontradas, *quando* a verificação executa, *então* o relatório informa quantas coincidem com uma fronteira de página da coleta e, para uma amostra semeada de 10 quebras, se uma nova consulta de uma hora em torno de cada uma devolve algum fill que faltava. Se alguma quebra for explicada pela paginação, o defeito é nosso: corrige-se a coleta e a taxa de quebra é medida de novo.
+- **CA-05.2** — *Dado* os episódios fechados das amostras, *quando* a diferença entre o PnL reconstruído e a soma dos `closedPnl` é dividida pelo notional negociado no episódio, *então* o relatório informa mediana, p95, p99 e máximo dessa razão, por número de fills, e a fração de episódios acima de 1 bp. Se essa fração passar de 5%, RF-ING-04 CA-04.2 volta para emenda.
+- **CA-05.3** — *Dado* um ativo do universo e uma semana da janela de seleção, *quando* o histórico de funding é consultado, *então* o relatório informa o formato da resposta e se há uma taxa para cada hora cheia.
+- **CA-05.4** — *Dado* as carteiras ativas da amostra de RF-VER-02, *quando* a verificação executa, *então* o relatório lista os 30 perpétuos do primeiro dex de maior notional na amostra, com número de fills e existência de equivalente na Binance, e informa quantas carteiras passariam em F9 com o universo de BTC, ETH e SOL e com o de todos os listados que têm equivalente. A medida é informativa.
+
+**Resultado da verificação.** RF-VER-01 a RF-VER-04 rodaram em 2026-10-06, e o relatório está em `docs/verificacao-de-dados.md`. Dez pontos contradisseram esta spec ou os ADRs. Cada um foi resolvido na emenda 1.1, e o mapa está em §10. RF-VER-03 não pôde ser medida com a amostra disponível; a conferência do proxy passou para RF-ING-06 CA-06.3 e RF-COL-05.
+
 ---
 
 ### 4.2 Ingestão (RF-ING)
@@ -120,21 +133,23 @@ O que esta spec assume sobre a API foi lido em documentação. Precisa ser confi
 
 **RF-ING-02 — Fills por carteira**
 
-- **CA-02.1** — *Dado* uma carteira e uma janela, *quando* a ingestão executa, *então* a coleta pagina até esgotar a janela ou o limite de retenção da API.
+- **CA-02.1** — *Dado* uma carteira e uma janela, *quando* a ingestão executa, *então* a coleta pagina até esgotar a janela, com fills não agregados (`aggregateByTime` falso), início de página inclusivo e deduplicação, de modo que nenhum fill de um mesmo milissegundo se perca na fronteira entre páginas.
 - **CA-02.2** — *Dado* que uma janela já foi ingerida, *quando* a ingestão executa de novo, *então* a contagem de fills permanece idêntica.
-- **CA-02.3** — *Dado* uma carteira que atingiu o limite de retenção e cujo fill mais antigo é posterior ao início da janela pedida, *quando* a ingestão termina, *então* ela é marcada "histórico truncado".
-- **CA-02.4** — *Dado* fills em ativos fora do universo (spot, HIP-3, outros perpétuos), *quando* a ingestão executa, *então* eles são gravados e marcados, não descartados. Os filtros F8 e F9 dependem deles.
+- **CA-02.3** — *Dado* uma carteira com mais de 20.000 fills na janela pedida, *quando* a coleta ultrapassa esse número, *então* ela para, e a carteira é marcada "frequência incompatível" e fica inelegível. Não existe teto de retenção por contagem: a integridade do histórico é conferida pela continuidade de posição (RF-ING-03).
+- **CA-02.4** — *Dado* um fill, *quando* a ingestão o grava, *então* ele é classificado pelo tipo de instrumento (perpétuo do primeiro dex, HIP-3, spot, token de resultado ou outro). Fills fora do universo são gravados e marcados, não descartados. Os filtros F8 e F9 dependem deles.
+- **CA-02.5** — *Dado* um fill de perpétuo do primeiro dex, *quando* a validação executa, *então* os 12 campos de RF-VER-01 CA-01.1 estão presentes e são interpretáveis; caso contrário a carteira fica inelegível e a falha é reportada. Nas demais classes exige-se só o necessário para o notional: fill sem preço ou tamanho interpretável conta com notional zero e é reportado.
 
 **RF-ING-03 — Continuidade de posição**
 A posição do líder é reconstruída dos fills. Um fill ausente corrompe tudo o que vem depois.
 
 - **CA-03.1** — *Dado* dois fills consecutivos da mesma carteira no mesmo ativo, *quando* a validação executa, *então* o `startPosition` do segundo é igual ao `startPosition` do primeiro mais o `sz` com o sinal do lado, dentro da tolerância de um lote. Caso contrário, a carteira é marcada "quebra de continuidade" naquele ativo, com o instante.
-- **CA-03.2** — *Dado* uma carteira com quebra de continuidade em ativo do universo dentro de uma janela, *quando* a seleção ou a avaliação usa aquela janela, *então* a carteira é inelegível e aparece no funil.
+- **CA-03.2** — *Dado* uma carteira com quebra de continuidade em ativo do universo dentro da janela de seleção, *quando* a seleção executa, *então* a carteira é inelegível e aparece no funil.
+- **CA-03.3** — *Dado* uma quebra de continuidade de uma carteira da coorte dentro da janela de avaliação, *quando* a avaliação executa, *então* a carteira não é excluída: a quebra é tratada por RF-SIM-02 CA-02.8 e contada no relatório.
 
 **RF-ING-04 — Episódios e conferência de PnL**
 
 - **CA-04.1** — *Dado* os fills de uma carteira em um ativo, *quando* os episódios são construídos, *então* cada episódio vai da posição zero até a volta a zero, e uma inversão de sinal encerra um episódio e abre outro no mesmo instante.
-- **CA-04.2** — *Dado* um episódio fechado, *quando* o PnL é reconstruído dos preços e tamanhos, *então* ele concilia com a soma dos `closedPnl` dos fills do episódio (na convenção confirmada em RF-VER-01 CA-01.4) com tolerância relativa de 1e-6. Divergência torna a carteira inelegível e é reportada.
+- **CA-04.2** — *Dado* um episódio fechado, *quando* o PnL é reconstruído dos preços e tamanhos por custo médio, *então* a diferença para a soma dos `closedPnl` dos fills do episódio, que é bruta de taxa, é de no máximo 1 bp do notional negociado no episódio. Diferença maior indica posição reconstruída errada: na janela de seleção ela torna a carteira inelegível, e é sempre reportada.
 
 **RF-ING-05 — Funding e metadados**
 
@@ -145,6 +160,8 @@ A posição do líder é reconstruída dos fills. Um fill ausente corrompe tudo 
 
 - **CA-06.1** — *Dado* um ativo e uma janela, *quando* a ingestão executa, *então* é produzida uma série por segundo com preço mínimo, máximo e último. Segundos sem negócio ficam ausentes, não preenchidos.
 - **CA-06.2** — *Dado* um arquivo baixado, *quando* a ingestão o lê, *então* ele é conferido contra o checksum publicado. Checksum divergente é falha explícita.
+- **CA-06.3** — *Dado* a ingestão concluída para as candidatas, *quando* cada fill dos ativos candidatos ao universo (RF-SEL-08) na janela de seleção é comparado ao preço proxy do mesmo segundo, *então* o relatório informa mediana e p95 da diferença em bps, por ativo e por dia. Ativo em que o p95 do desvio absoluto em relação à mediana do dia excede 10 bps é marcado "proxy inválido" e não entra no universo. A conferência roda antes da formação do universo.
+- **CA-06.4** — *Dado* a mesma comparação, *quando* o relatório é emitido, *então* informa também a mediana diária da diferença e a variação dela entre dias, que é o deslocamento de nível entre as duas corretoras.
 
 **RF-ING-07 — Limites da API e resiliência**
 
@@ -163,12 +180,12 @@ A posição do líder é reconstruída dos fills. Um fill ausente corrompe tudo 
 
 **RF-COL-01 — Livro de ofertas**
 
-- **CA-01.1** — *Dado* um ativo do universo, *quando* o coletor está rodando, *então* cada atualização recebida do topo do livro (melhor compra e melhor venda, com tamanhos; profundidade adicional configurável) é gravada com o timestamp da corretora e o de recebimento local.
+- **CA-01.1** — *Dado* um ativo do universo, *quando* o coletor está rodando, *então* são gravados o canal de melhor compra e venda, a cada mudança, e o retrato do livro na assinatura rápida (5 níveis, a cada meio segundo, aproximadamente), os dois com o timestamp da corretora e o de recebimento local, em formato comprimido.
 
 **RF-COL-02 — Lacunas**
 
 - **CA-02.1** — *Dado* uma desconexão, *quando* o coletor a detecta, *então* ele reconecta sozinho e registra a lacuna, com início e fim, por ativo.
-- **CA-02.2** — *Dado* mais de 10 segundos sem atualização de um ativo e sem desconexão detectada, *quando* o coletor verifica, *então* o intervalo também é registrado como lacuna.
+- **CA-02.2** — *Dado* mais de 10 segundos sem retrato do livro de um ativo e sem desconexão detectada, *quando* o coletor verifica, *então* o intervalo também é registrado como lacuna. A regra não se aplica ao fluxo de negócios, que fica em silêncio em mercado quieto.
 - **CA-02.3** — *Dado* o coletor em execução, *quando* o comando de status é chamado, *então* ele mostra, por ativo, a fração do tempo sem lacuna desde o início.
 
 **RF-COL-03 — Fluxo público de negócios**
@@ -180,6 +197,11 @@ A posição do líder é reconstruída dos fills. Um fill ausente corrompe tudo 
 
 - **CA-04.1** — *Dado* que o processo é reiniciado, *quando* volta a gravar, *então* nenhum registro é duplicado nem corrompido.
 - **CA-04.2** — *Dado* 45 dias de execução, *quando* o uso de disco é medido, *então* ele está dentro do orçamento de RNF-10.
+
+**RF-COL-05 — Conferência do proxy contra o livro**
+
+- **CA-05.1** — *Dado* um dia com livro gravado e preço proxy disponível, *quando* o relatório é gerado, *então* informa, por ativo, mediana e p95 da diferença em bps entre o ponto médio do livro e o preço proxy do mesmo segundo. A medida é informativa e entra na declaração de vieses.
+- **CA-05.2** — *Dado* ao menos 3 dias de gravação de um ativo, *quando* o relatório é gerado, *então* informa a mediana do meio-spread em bps daquele ativo. É esse valor que alimenta o slippage do cenário primário da Rota A (§7.2).
 
 ---
 
@@ -194,7 +216,7 @@ A seleção com corte T não pode depender de nada que aconteceu a partir de T.
 
 **RF-SEL-02 — Filtros de elegibilidade**
 
-- **CA-02.1** — *Dado* as carteiras candidatas, *quando* a seleção executa, *então* os filtros F1 a F10 de §7.3 são aplicados na ordem da tabela e o relatório mostra o funil: quantas entraram e quantas cada filtro removeu.
+- **CA-02.1** — *Dado* as carteiras candidatas, *quando* a seleção executa, *então* os filtros F1 a F10 de §7.3 são aplicados e o relatório mostra o funil na ordem de execução: quantas entraram e quantas cada filtro removeu. A ordem não altera o conjunto final. F1 roda por último, por ser o mais caro de consultar.
 - **CA-02.2** — *Dado* a execução da seleção, *quando* um limiar é lido, *então* ele vem do arquivo de parâmetros pré-registrados e de nenhum outro lugar.
 - **CA-02.3** — *Dado* uma carteira sintética construída para falhar em exatamente um filtro, *quando* a seleção executa, *então* ela é removida por aquele filtro e por nenhum outro. Um teste por filtro.
 
@@ -222,6 +244,20 @@ A seleção com corte T não pode depender de nada que aconteceu a partir de T.
 - **CA-06.2** — *Dado* a mesma semente e os mesmos dados, *quando* o sorteio é refeito, *então* as coortes são idênticas.
 - **CA-06.3** — *Dado* que o número de coortes distintas possíveis é menor que 1.000, *quando* o sorteio executa, *então* todas as coortes possíveis são usadas, uma vez cada. Com K = 1, a distribuição de controle é a lista inteira de elegíveis.
 
+**RF-SEL-07 — Pool de candidatas**
+
+- **CA-07.1** — *Dado* o snapshot do leaderboard, *quando* a seleção começa, *então* as candidatas são uma amostra aleatória de 3.000 endereços entre os que passam em F2, sorteada com semente registrada, com os endereços ordenados antes do sorteio.
+- **CA-07.2** — *Dado* menos de 20 carteiras elegíveis ao fim dos filtros, *quando* a seleção verifica, *então* a amostra cresce em blocos de 3.000, na mesma sequência do sorteio, até haver 20 elegíveis ou o pool acabar. Cada ampliação fica registrada no congelamento.
+- **CA-07.3** — *Dado* a decisão de ampliar, *quando* ela é tomada, *então* depende só da contagem de elegíveis, que não usa desempenho.
+
+**RF-SEL-08 — Universo por regra**
+O universo não é uma lista fixa. É formado a cada seleção, por critérios de liquidez e de qualidade de preço. Nenhum critério usa desempenho.
+
+- **CA-08.1** — *Dado* os fills das candidatas na janela de seleção, *quando* o universo é formado, *então* entram os perpétuos do primeiro dex que cumprem as quatro condições: (i) têm perpétuo equivalente na Binance com dados em todos os dias da janela; (ii) estão, entre os que cumprem (i), nos 20 de maior notional negociado pelas candidatas; (iii) têm pelo menos 2.000 fills de candidatas na janela; (iv) passam na conferência do proxy de RF-ING-06 CA-06.3.
+- **CA-08.2** — *Dado* a seleção, *quando* ela executa, *então* o universo é formado antes dos filtros que dependem dele e fica gravado no congelamento.
+- **CA-08.3** — *Dado* o universo formado, *quando* o relatório é emitido, *então* informa, para cada ativo considerado, qual condição o deixou fora, e a cobertura do universo sobre o notional das candidatas, em todos os fills e só em perpétuos do primeiro dex.
+- **CA-08.4** — *Dado* a Rota B, *quando* o congelamento é publicado, *então* a janela de avaliação só começa numa meia-noite UTC em que o coletor já esteja gravando todos os ativos do universo.
+
 ---
 
 ### 4.5 Simulador (RF-SIM)
@@ -245,12 +281,13 @@ Ver ADR-0002.
 - **CA-02.5** — *Dado* que o líder zera a posição em um ativo, *quando* o evento é processado, *então* o seguidor zera a sua integralmente, mesmo abaixo do mínimo.
 - **CA-02.6** — *Dado* a variante só compras, *quando* um alvo é negativo, *então* ele é substituído por zero e todo o resto do cálculo é idêntico.
 - **CA-02.7** — *Dado* que as ordens de um evento foram executadas, *quando* o estado é inspecionado, *então* a exposição bruta aos preços de execução é ≤ `teto × patrimônio`, com tolerância de um lote por ativo. Deriva acima do teto entre eventos é permitida e reportada como alavancagem máxima observada.
+- **CA-02.8** — *Dado* qualquer fill do líder, *quando* a posição dele é atualizada, *então* ela é a posição anterior declarada no fill mais o tamanho com sinal. Se essa posição anterior não for a que o simulador tinha, houve mudança não observada: ela é incorporada naquele instante, contada no relatório, e nunca retroage nem é interpolada.
 
 **RF-SIM-03 — Preço de execução**
 Ver ADR-0003.
 
 - **CA-03.1** — *Dado* a Rota A, *quando* uma ordem é executada, *então* a compra sai ao preço máximo e a venda ao preço mínimo do segundo do proxy que contém o instante de execução, mais o slippage configurado, contra o seguidor.
-- **CA-03.2** — *Dado* a Rota B, *quando* uma ordem é executada, *então* ela percorre os níveis gravados do livro e usa, entre as duas observações adjacentes ao instante de execução, a pior para o seguidor.
+- **CA-03.2** — *Dado* a Rota B, *quando* uma ordem é executada, *então* o melhor preço vem do canal de melhor compra e venda, usando, entre a última observação até o instante de execução e a primeira depois dele, a pior para o seguidor. A profundidade além do melhor nível vem do retrato rápido do livro mais recente.
 - **CA-03.3** — *Dado* a Rota B e uma ordem maior que a profundidade gravada, *quando* ela é executada, *então* só a parte disponível é executada; o resto é contado como "profundidade excedida" e reavaliado no próximo evento.
 - **CA-03.4** — *Dado* a Rota B, *quando* a comparação de fontes de preço é pedida, *então* a mesma coorte e o mesmo cenário são simulados sobre o mesmo intervalo, uma vez com o livro gravado e uma vez com o preço proxy, e a diferença de retorno é reportada em pontos percentuais.
 
@@ -291,6 +328,7 @@ Por subconta e para a carteira: retorno líquido, Sharpe diário anualizado, dra
 - **CA-01.1** — *Dado* a série de retornos diários (dia UTC), *quando* o Sharpe é computado, *então* usa `média / desvio-padrão × √365`, com taxa livre de risco zero, declarada no relatório.
 - **CA-01.2** — *Dado* desvio-padrão zero, *quando* o Sharpe é computado, *então* o resultado é indefinido e reportado como tal.
 - **CA-01.3** — *Dado* a curva de patrimônio, *quando* o drawdown máximo é computado, *então* é a maior queda percentual em relação ao máximo corrente, com datas de pico, de fundo e de recuperação, ou indicação de não recuperado.
+- **CA-01.4** — *Dado* uma avaliação concluída, *quando* o relatório é emitido, *então* o resultado líquido aparece também por ativo e em dois grupos: BTC, ETH e SOL de um lado, os demais ativos do universo do outro. A quebra é informativa e não entra no veredito.
 
 **RF-ANA-02 — Benchmarks**
 
@@ -316,7 +354,7 @@ Por subconta e para a carteira: retorno líquido, Sharpe diário anualizado, dra
 
 **RF-ANA-06 — Declaração de vieses**
 
-- **CA-06.1** — *Dado* qualquer relatório, *quando* é emitido, *então* contém uma seção fixa declarando: viés de sobrevivência na lista de candidatos; preço proxy e slippage por premissa na Rota A; janela única de 30 dias e dependência do regime de mercado; ausência de correção para múltiplas hipóteses; ausência de impacto de mercado e do efeito de outros copiadores; exclusão de carteiras com histórico truncado; posições anteriores à janela não copiadas; referência de exposição congelada; atraso modelado como constante; funding aproximado pelo preço de marcação da fonte usada; taxa base sem descontos; custos fixos de entrada e saída de capital não modelados; coorte de uma única carteira no cenário primário.
+- **CA-06.1** — *Dado* qualquer relatório, *quando* é emitido, *então* contém uma seção fixa declarando: viés de sobrevivência na lista de candidatos; preço proxy e slippage por premissa na Rota A; janela única de 30 dias e dependência do regime de mercado; ausência de correção para múltiplas hipóteses; ausência de impacto de mercado e do efeito de outros copiadores; exclusão de carteiras com histórico truncado; posições anteriores à janela não copiadas; referência de exposição congelada; atraso modelado como constante; funding aproximado pelo preço de marcação da fonte usada; taxa base sem descontos; custos fixos de entrada e saída de capital não modelados; coorte de uma única carteira no cenário primário; universo restrito a perpétuos do primeiro dex, com a cobertura medida; pool de candidatas amostrado.
 
 **RF-ANA-07 — Tamanho de amostra**
 
@@ -362,13 +400,13 @@ python -m copylab gate --freeze preregistro/rota-b.json
 - **RNF-01 — Determinismo.** Mesmos dados e mesmos parâmetros produzem resultado idêntico. Toda aleatoriedade usa semente registrada.
 - **RNF-02 — Cobertura de testes.** Mínimo de 85% em seleção, simulador e analytics, com cobertura de ramos.
 - **RNF-03 — Fixtures de papel.** Testes de seleção, simulador e analytics rodam sobre séries construídas à mão, com o resultado esperado derivado no próprio teste. Dado real de mercado não entra nesses testes.
-- **RNF-04 — Performance.** Uma carteira, um cenário, 92 dias: menos de 5 segundos. Varredura de seleção com até 500 carteiras no cenário primário: menos de 30 minutos.
+- **RNF-04 — Performance.** Uma carteira, um cenário, 92 dias: menos de 5 segundos. Filtros sobre 3.000 carteiras: menos de 10 minutos. Ranking de até 200 elegíveis no cenário primário: menos de 30 minutos. A ingestão é limitada pela API, não pelo código: cerca de 15 horas por bloco de 3.000 carteiras.
 - **RNF-05 — Tipagem.** `mypy --strict` no CI.
 - **RNF-06 — Ambiente.** Python 3.12+, `uv`, serviços via `docker-compose`. `make test` roda offline, sem rede.
 - **RNF-07 — Tempo.** Todo timestamp é um inteiro de milissegundos UTC, do provedor ao relatório. A conversão para dia-calendário UTC acontece em um único módulo. Nenhum fuso local, nenhum `datetime` sem fuso.
 - **RNF-08 — Dinheiro.** Ponto flutuante, com comparações de teste por tolerância explícita.
 - **RNF-09 — Somente leitura.** Nenhuma chave privada, nenhuma assinatura e nenhum endpoint de ordem existem no código desta fase. Verificável por teste de arquitetura sobre os imports.
-- **RNF-10 — Custo e disco.** Nenhum dado ou serviço pago. Disco local total da fase ≤ 30 GB.
+- **RNF-10 — Custo e disco.** Nenhum dado ou serviço pago. Disco local total da fase ≤ 30 GB, com a gravação do coletor comprimida e os arquivos brutos do proxy descartados depois de gerada a série por segundo.
 - **RNF-11 — Limites da API.** Respeitar 1.200 de peso por minuto por IP e 10 usuários distintos em assinaturas de usuário por WebSocket. Consequência: K ≤ 10.
 
 ## 6. Premissas
@@ -386,6 +424,7 @@ python -m copylab gate --freeze preregistro/rota-b.json
 11. Todo capital desta fase é simulado. Nenhum dinheiro real é movimentado.
 12. Custos fixos de pôr e tirar dinheiro da corretora (depósito mínimo, taxa de saque, conversão de reais) não entram no retorno simulado. Com capital pequeno eles pesam, e o relatório declara isso.
 13. O coletor roda em uma máquina doméstica ligada sem interrupção. Quedas de energia e de internet viram lacunas, tratadas por RF-COL-02 e pela regra de cobertura de §7.2.
+14. A API devolve histórico além dos 10.000 fills que a documentação cita, mas a profundidade real não foi medida. A integridade do histórico é conferida pela continuidade de posição.
 
 ## 7. Decisões e parâmetros
 
@@ -399,7 +438,7 @@ python -m copylab gate --freeze preregistro/rota-b.json
 | D4 | Protocolo de avaliação | Rota A como triagem; Rota B com a semana ao vivo aos 7 dias e o veredito do estudo aos 30 | ADR-0004 |
 | D5 | Critério | Retorno líquido positivo e acima de comprar e manter BTC, no cenário primário | Combinado antes de qualquer dado ser lido |
 | D6 | Repositório | Projeto novo, com as convenções do quantlab e sem reaproveitar código dele | Mercado e escala de tempo diferentes |
-| D7 | Universo e regra de ampliação | BTC, ETH e SOL. Se a cobertura medida em RF-VER-02 for menor que 50%, acrescentam-se ativos em ordem decrescente de notional na amostra, até atingir 50% ou 8 ativos, considerando só ativos com perpétuo equivalente na Binance | Regra escrita antes da medição, para a ampliação não virar escolha livre |
+| D7 | Universo | Formado por regra a cada seleção (RF-SEL-08): até 20 perpétuos do primeiro dex, com equivalente na Binance, volume mínimo e proxy aprovado. Substitui a lista BTC, ETH e SOL | A verificação mostrou que os três cobrem 41,3% do notional de perpétuos e 16,6% do total, e que poucas carteiras se concentram neles. Uma lista fixa, de 3 ou de 8, seria escolha de autor; a regra deixa os dados decidirem quais ativos têm preço confiável. Perpétuos HIP-3, 54,7% do notional da amostra, continuam fora por não terem preço equivalente |
 | D8 | Posições anteriores à janela | Não são copiadas | Evita entrar em posição antiga a preço que o líder não pagou; dá episódios limpos como unidade de análise |
 | D9 | Um resultado por rota | A Rota A não pode alterar a regra da Rota B depois de vista | Sem isso, a Rota B deixaria de ser pré-registrada |
 | D10 | Onde o coletor roda | Na máquina secundária do Pedro, ligada sem interrupção | Os servidores gratuitos avaliados exigem cartão de crédito no cadastro. O da Oracle, o mais generoso, recolhe instâncias ociosas e reduziu o plano em 2026 sem aviso; o do Google só existe em regiões dos EUA, país restrito pela Hyperliquid. A máquina própria não depende de terceiros, e a latência medida nela é a do lugar onde um bot rodaria |
@@ -409,6 +448,11 @@ python -m copylab gate --freeze preregistro/rota-b.json
 | D14 | Número de carteiras na coorte | `min(5, ⌊capital / 50⌋)`, mínimo 1 | Cada subconta precisa valer várias vezes a ordem mínima, ou quase nada é copiado |
 | D15 | Limiares dos filtros F1 a F10 | Os da tabela de §7.3 | Valores de simulação delegados na aprovação. Ficam congelados antes de qualquer dado ser lido |
 | D16 | Nome do projeto e do pacote | `copylab` | Segue o padrão do quantlab |
+| D17 | Pool de candidatas | Amostra semeada de 3.000 carteiras do pool F2, ampliável em blocos de 3.000 (RF-SEL-07) | O pool tem cerca de 18 mil carteiras, e ingerir todas levaria dias no limite da API. Uma amostra aleatória não introduz viés. Custa cerca de 15 horas de coleta por rota |
+| D18 | Granularidade dos fills | Não agregados (`aggregateByTime` falso) | Continuidade, episódios e a marcação de taker por fill foram medidos assim. A agregação muda a contagem em 35% |
+| D19 | Canais do coletor | Melhor compra e venda a cada mudança, mais o livro na assinatura rápida | O livro default chega a cada 5,4 s, não a cada 0,5 s. Para ordens de dezenas de dólares, o melhor nível basta |
+| D20 | Tolerância de conciliação de PnL | 1 bp do notional do episódio | A tolerância relativa de 1e-6 reprovava a maioria dos episódios de vários fills, por diferença que não é erro de posição. Sujeita à confirmação de RF-VER-05 CA-05.2 |
+| D21 | Slippage da Rota A por ativo | O maior entre 2 bps e a mediana do meio-spread medido pelo coletor | Com ativos menos líquidos no universo, um valor único favoreceria justamente os mais caros de copiar |
 
 ### 7.2 Parâmetros pré-registrados
 
@@ -416,7 +460,7 @@ Valores aprovados com esta spec, exceto onde a coluna indica outra coisa. Depois
 
 | Parâmetro | Valor | Congela em |
 |---|---|---|
-| Universo | BTC, ETH, SOL (perpétuos do primeiro dex) | Após RF-VER-02 |
+| Universo | Por regra, a cada seleção (RF-SEL-08): no máximo 20 ativos, mínimo de 2.000 fills de candidatas por ativo, desvio do proxy de até 10 bps | Aprovação da emenda 1.1 |
 | Rota A — janela de seleção | 2026-07-01 a 2026-08-31 (UTC), 62 dias | Aprovação |
 | Rota A — corte T | 2026-09-01 00:00 UTC | Aprovação |
 | Rota A — janela de avaliação | 2026-09-01 a 2026-09-30 (UTC), 30 dias | Aprovação |
@@ -427,10 +471,13 @@ Valores aprovados com esta spec, exceto onde a coluna indica outra coisa. Depois
 | Gate do piloto — perda máxima na semana | 10% (retorno simulado com o livro ≥ −10%) | Aprovação |
 | Gate do piloto — diferença entre fontes de preço | 1 ponto percentual, em módulo | Aprovação |
 | Capital real máximo do piloto | US$ 50 | Aprovação |
+| Pool de candidatas | 3.000 carteiras do pool F2, em blocos adicionais de 3.000 enquanto houver menos de 20 elegíveis | Aprovação da emenda 1.1 |
+| Teto de fills por carteira na janela | 20.000 | Aprovação da emenda 1.1 |
+| Tolerância de conciliação de PnL | 1 bp do notional do episódio | Após RF-VER-05 |
 | K (carteiras na coorte) | `min(5, ⌊capital / 50⌋)`, com mínimo de 1. Cada subconta tem pelo menos US$ 50, cinco vezes a ordem mínima | Aprovação |
 | Capital (simulado) | Primário US$ 50, com K = 1. Grade: 50 / 100 / 500, com K = 1 / 2 / 5 | Aprovação |
 | Δ | Primário 5 s; grade 1 / 5 / 30 s | Aprovação |
-| Slippage (Rota A) | Primário 2 bps; grade 0 / 2 / 5 bps | Aprovação |
+| Slippage (Rota A) | Primário, por ativo: o maior entre 2 bps e a mediana do meio-spread medido pelo coletor em ao menos 3 dias. Sensibilidade: zero e o dobro do primário | Aprovação da emenda 1.1 |
 | Taxa taker | 4,5 bps | Aprovação |
 | Teto de alavancagem | 1,0 | Aprovação |
 | Exposição no pico | 1,0 | Aprovação |
@@ -445,20 +492,20 @@ Todos calculados só com dados da janela de seleção, exceto F1 e F2, que vêm 
 
 | # | Filtro | Limiar | Por quê |
 |---|---|---|---|
-| F1 | Tipo de conta | Usuário comum (exclui vault e subconta) | Vault tem regras próprias de saque e comissão |
+| F1 | Tipo de conta | Usuário comum (exclui vault e subconta). Aplicado por último | Vault tem regras próprias de saque e comissão |
 | F2 | Patrimônio no snapshot | ≥ US$ 30.000 | Conta pequena some ou saca tudo; é o piso que a documentação da HyperDash recomenda |
-| F3 | Histórico íntegro | Cobre a janela inteira, sem truncamento nem quebra de continuidade | Sem isso a posição reconstruída está errada |
+| F3 | Histórico íntegro | Dentro da janela de seleção: sem quebra de continuidade no universo, sem falha de campo em fill de perpétuo, PnL conciliado e no máximo 20.000 fills | Sem isso a posição reconstruída está errada |
 | F4 | Episódios fechados no universo | ≥ 20 | Amostra mínima por carteira |
 | F5 | Regularidade | Abre episódio em ≥ 6 dos 8 blocos completos de 7 dias | Exclui quem acertou uma semana |
 | F6 | Duração mediana do episódio | Entre 1 hora e 7 dias | Abaixo de 1 hora, o atraso de segundos pesa demais; acima de 7 dias, sobram poucos episódios em 30 dias |
 | F7 | Entradas a mercado | ≥ 50% do notional de abertura com `crossed = true` | Quem entra em repouso recebe o spread que o seguidor paga |
 | F8 | Concentração | Mediana de até 3 ativos abertos ao mesmo tempo, contando todos os ativos | Muitas posições simultâneas indicam market maker ou arbitragem de funding |
 | F9 | Cobertura do universo | ≥ 50% do notional da carteira em ativos do universo | Abaixo disso copia-se a menor parte da estratégia |
-| F10 | Liquidações | Nenhuma | Sinal de risco que o teto de 1x não elimina por completo |
+| F10 | Liquidações | Nenhum fill em que a carteira é a liquidada. Auto-deleveraging não conta | Sinal de risco que o teto de 1x não elimina por completo |
 
 ## 8. Questões em aberto
 
-Nenhuma. Q1 a Q5 foram fechadas como D10 a D16.
+Nenhuma. Q1 a Q5 foram fechadas como D10 a D16. Q6 (universo) e Q7 (pool de candidatas), abertas na emenda 1.1, foram fechadas como D7 e D17.
 
 ## 9. Definition of Done
 
@@ -472,6 +519,7 @@ Nenhuma. Q1 a Q5 foram fechadas como D10 a D16.
 - [ ] Cobertura ≥ 85% em seleção, simulador e analytics
 - [ ] CI verde: testes, `mypy --strict`, lint
 - [ ] ADRs 0001 a 0005 aceitos
+- [ ] Verificação complementar (RF-VER-05) executada, com o relatório atualizado
 - [ ] Congelamento da Rota A commitado antes de qualquer leitura da janela de avaliação
 - [ ] Relatório da Rota A com veredito, grade inteira, decomposição, controle só compras e seção de vieses
 - [ ] O coletor está rodando e o comando de status mostra cobertura
@@ -494,6 +542,7 @@ Nenhuma. Q1 a Q5 foram fechadas como D10 a D16.
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.1 | 2026-10-06 | **Emenda proposta**, resultado da verificação de dados. (1) Sem teto de 10.000 fills: RF-ING-02 CA-02.1 e CA-02.3, F3, premissa 14. (2) Tolerância de PnL: RF-ING-04 CA-04.2, D20. (3) Quebras de continuidade: RF-ING-03 CA-03.2 e CA-03.3, RF-SIM-02 CA-02.8, RF-VER-05 CA-05.1. (4) Universo por regra, no lugar da lista fixa: RF-SEL-08, D7, D21, RF-COL-05 CA-05.2, RF-ANA-01 CA-01.4. (5) Pool de candidatas: RF-SEL-07, D17, RF-SEL-02 CA-02.1. (6) Cadência do livro: RF-COL-01 CA-01.1, RF-SIM-03 CA-03.2, D19. (7) Regra de lacuna: RF-COL-02 CA-02.2. (8) Classes de fill: RF-ING-02 CA-02.4 e CA-02.5, F10. (9) Agregação: D18. (10) Proxy: RF-ING-06 CA-06.3 e CA-06.4, RF-COL-05. Acrescentada RF-VER-05. Q6 e Q7 abertas e fechadas na mesma emenda |
 | 1.0 | 2026-10-05 | **Aprovada.** Estrutura em três marcos: Rota A, semana ao vivo com gate do piloto (RF-ANA-08, ADR-0005) e veredito de 30 dias. Capital primário de US$ 50 (D11), teto real de US$ 50 (D13). Q1 a Q4 fechadas como D11 a D16. Verificação de dados declarada como única área anterior ao design (§4.1). Acrescentados RF-SEL-06 CA-06.3, RF-SIM-03 CA-03.4 e RF-ANA-05 CA-05.4 |
 | 0.2 | 2026-10-05 | Esclarecido que todo capital é simulado e que o primário espelha o capital real pretendido (D11, premissas 11 e 12). K passa a depender do capital (§7.2, RF-SEL-04 CA-04.4, RF-SEL-06). Q5 fechada como D10: coletor na máquina secundária (premissa 13). Custos fixos de entrada e saída entram na declaração de vieses |
 | 0.1 | 2026-10-05 | Rascunho inicial, com Q1 a Q5 em aberto |
