@@ -71,3 +71,11 @@ A invariante é imposta por construção: o simulador expõe a cada componente a
 ## Revisitar quando
 
 A Rota B tiver medido a distribuição real do atraso de recebimento, o que permite trocar Δ constante por latência sorteada; ou quando uma fase futura considerar ordens limite para o seguidor.
+
+## Errata — 2026-10-06
+
+O contexto diz que na Rota B "há retratos do livro a cada meio segundo, aproximadamente". Medido: isso só vale na assinatura rápida, com 5 níveis. A assinatura default, com 20 níveis, chega a cada 5,4 s. O canal de melhor compra e venda chega a cada mudança, com mediana de 0,13 a 0,18 s.
+
+A decisão não muda. Muda de onde vêm as duas observações adjacentes: do canal de melhor compra e venda, com a profundidade vinda do retrato rápido (RF-SIM-03 CA-03.2, RF-COL-01 CA-01.1).
+
+Medido na mesma gravação: o atraso entre o timestamp da corretora e o recebimento teve mediana de cerca de 0,3 s e p99 de cerca de 1 s, somando rede e diferença de relógio. O cenário de Δ = 1 s fica no limite do alcançável a partir da máquina do coletor. O primário, de 5 s, tem folga.

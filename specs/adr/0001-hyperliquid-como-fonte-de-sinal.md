@@ -54,3 +54,13 @@ O sinal vem dos fills de carteiras públicas da Hyperliquid, lidos pela API de i
 ## Revisitar quando
 
 A Hyperliquid restringir a API de informação ou reduzir a retenção; a Binance ou a OKX passarem a publicar fills de líderes por API oficial; ou surgir restrição legal a residentes no Brasil. Qualquer um dos três reabre a decisão antes de uma fase com dinheiro real.
+
+## Errata — 2026-10-06
+
+O corpo acima fica como foi escrito. A verificação de dados (`docs/verificacao-de-dados.md`) corrigiu três fatos.
+
+1. **Não há teto de 10.000 fills.** Paginando por intervalo de tempo, a API devolveu mais de 10.000 fills em 29 de 100 carteiras, com histórico que chega a janeiro de 2024. A profundidade real não foi medida. Deixa de valer a consequência "carteiras com mais de 10.000 fills desde o início da janela são excluídas". No lugar entra um teto de custo de 20.000 fills por carteira na janela (RF-ING-02 CA-02.3), e a integridade do histórico passa a ser conferida só pela continuidade de posição.
+2. **Há mais classes de fill do que perpétuo, HIP-3 e spot.** Aparecem tokens de resultado e conversões de saldo residual, com preço ou identificador zerados. São gravados, marcados e nunca copiados (RF-ING-02 CA-02.4 e CA-02.5).
+3. **A continuidade de posição quebra em dado real**, em 0,16% a 0,82% dos pares de fills, conforme a amostra, e em 4 de 36 carteiras com perpétuos na amostra maior. A causa não foi identificada. Na seleção a carteira fica inelegível; na avaliação a mudança não observada é incorporada no fill seguinte (RF-SIM-02 CA-02.8).
+
+Também medido: perpétuos HIP-3 respondem por 54,7% do notional da amostra. A decisão de limitar o universo ao primeiro dex continua, mas custa mais do que este ADR supunha. Esse custo se soma ao que o texto já lista como ponto fraco da escolha.

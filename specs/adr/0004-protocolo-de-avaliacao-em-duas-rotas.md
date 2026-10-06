@@ -72,3 +72,9 @@ O que cada resultado libera está no ADR-0005.
 ## Revisitar quando
 
 A Rota A atingir o critério, o que justifica gastar com a Rota C para repetir o estudo sem viés de sobrevivência; ou quando o coletor tiver 92 dias de fluxo de negócios gravado, o que permite selecionar entre todas as carteiras que operaram no período, sem depender do leaderboard.
+
+## Errata — 2026-10-06
+
+A validação cruzada em várias janelas foi descartada, em parte, porque o histórico gratuito seria "limitado a 10.000 fills". O limite não existe (ver a errata do ADR-0001). O outro motivo continua: é um mecanismo a mais para validar antes de o básico estar provado. O walk-forward passa a ser viável com dados gratuitos e entra como gatilho de revisão, ao lado dos dois já listados.
+
+Também medido: o pool de candidatas tem cerca de 18 mil carteiras, e a seleção passa a trabalhar sobre uma amostra aleatória semeada (RF-SEL-07). Isso não altera o protocolo.
