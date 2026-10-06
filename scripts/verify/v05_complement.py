@@ -187,18 +187,15 @@ def requery(client: HlClient, rec: dict[str, Any], brk: dict[str, Any]) -> dict[
     """
     start = max(brk["t_a"] - MINUTE_MS, WINDOW_START_MS)
     end = min(brk["t_b"] + MINUTE_MS, CUTOFF_MS - 1)
-    returned: list[dict[str, Any]] = []
-    cursor = start
-    complete = False
-    for _ in range(2):
-        page = client.user_fills(brk["address"], cursor, end, aggregate=False)
-        returned.extend(page)
-        if len(page) < PAGE_MAX:
-            complete = True
-            break
-        cursor = max(int(f["time"]) for f in page)
-    got = Counter(_fill_key(f) for f in returned if WINDOW_START_MS <= int(f["time"]) < CUTOFF_MS)
-    last = max((int(f["time"]) for f in returned), default=start)
+    # Mesma paginação e mesma deduplicação da coleta (início inclusivo, multiconjunto na
+    # fronteira). Uma primeira versão desta função somava as páginas sem deduplicar e contou as
+    # repetições do milissegundo da fronteira como "fill que faltava"; ver o relatório.
+    got = collect_fills(client, brk["address"], start, end, keep=True, max_pages=2)
+    returned = Counter(
+        _fill_key(f) for f in got.fills if WINDOW_START_MS <= int(f["time"]) < CUTOFF_MS
+    )
+    complete = not got.truncated
+    last = max((int(f["time"]) for f in got.fills), default=start)
     stored = Counter(
         _fill_key(f) for f in rec["fills"] if start <= int(f["time"]) <= (end if complete else last)
     )
@@ -207,10 +204,11 @@ def requery(client: HlClient, rec: dict[str, Any], brk: dict[str, Any]) -> dict[
         "coin": brk["coin"],
         "gap_s": (brk["t_b"] - brk["t_a"]) / 1000,
         "interval_s": (end - start) / 1000,
-        "returned": sum(got.values()),
+        "pages": got.pages,
+        "returned": sum(returned.values()),
         "stored_in_range": sum(stored.values()),
-        "missing_from_stored": sum((got - stored).values()),
-        "stored_not_returned": sum((stored - got).values()) if complete else None,
+        "missing_from_stored": sum((returned - stored).values()),
+        "stored_not_returned": sum((stored - returned).values()) if complete else None,
         "covers_whole_interval": complete,
     }
 
@@ -287,6 +285,10 @@ def ca_051(
             "covering_whole_interval": sum(q["covers_whole_interval"] for q in census),
             "returning_a_missing_fill": sum(q["missing_from_stored"] > 0 for q in census),
             "with_stored_fills_not_returned": sum(bool(q["stored_not_returned"]) for q in census),
+            "with_two_pages": sum(q["pages"] >= 2 for q in census),
+            "not_clean": [
+                q for q in census if q["missing_from_stored"] or not q["covers_whole_interval"]
+            ],
             "fills_returned_total": sum(q["returned"] for q in census),
         },
     }

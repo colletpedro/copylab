@@ -551,3 +551,49 @@ def test_straddle_by_span_compares_broken_and_intact_pairs_of_the_same_span() ->
     assert [v05.span_band(d) for d in (1, 2, 10, 11, 100, 101, 1000, 1001)] == [
         "1", "2 a 10", "2 a 10", "11 a 100", "11 a 100", "101 a 1000", "101 a 1000", "mais de 1000",
     ]  # fmt: skip
+
+
+@pytest.mark.unit
+def test_pagination_max_pages_stops_and_flags_a_full_last_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """20 fills em páginas de 5: com `max_pages=2` pára depois da segunda página, cheia, e
+    avisa que pode haver mais; com 6 fills (a segunda página sai curta) não há o que avisar."""
+    monkeypatch.setattr(common, "PAGE_MAX", 5)  # "página cheia" passa a ser 5 itens
+    many = [_at(t, t) for t in range(1, 21)]
+    cut = common.collect_fills(_FakeFillsClient(many, 5), "0x0", 0, 100, max_pages=2)
+    assert cut.pages == 2
+    assert cut.truncated is True
+    few = [_at(t, t) for t in range(1, 7)]
+    short = common.collect_fills(_FakeFillsClient(few, 5), "0x0", 0, 100, max_pages=2)
+    assert short.count == 6
+    assert short.truncated is False
+
+
+@pytest.mark.unit
+def test_requery_does_not_count_the_repeated_boundary_fill_as_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regressão de um defeito da primeira versão da reconsulta (RF-VER-05 CA-05.1).
+
+    Fills em base+1, base+2, base+3 (dois, o `3a` e o `3b`) e base+4, páginas de 3. Página 1:
+    [1, 2, 3a]; a página 2 recomeça de forma inclusiva em base+3 e traz [3a, 3b, 4]. Somar as
+    páginas sem deduplicar devolveria o `3a` duas vezes, e ele seria contado como fill que
+    faltava na coleta. Com a deduplicação de fronteira, nada falta.
+    """
+    v05 = _load("v05_complement")
+    monkeypatch.setattr(common, "PAGE_MAX", 3)
+    base = common.WINDOW_START_MS + 10_000_000
+    fills = [
+        _at(base + 1, 1),
+        _at(base + 2, 2),
+        _at(base + 3, 3),
+        _at(base + 3, 4),
+        _at(base + 4, 5),
+    ]
+    rec = {"address": "0xa", "fills": fills}
+    brk = {"address": "0xa", "coin": "BTC", "t_a": base + 1, "t_b": base + 4}
+    out = v05.requery(_FakeFillsClient(fills, 3), rec, brk)
+    assert out["returned"] == 5
+    assert out["missing_from_stored"] == 0
+    assert out["pages"] == 2

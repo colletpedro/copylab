@@ -925,6 +925,326 @@ def build(ctx: Ctx) -> Path:
     w("<!-- NARRATIVA: preenchida à mão depois da leitura dos resultados -->\n")
 
     target = ctx.root / "report.md" if ctx.smoke else REPO_ROOT / "docs" / "verificacao-de-dados.md"
+    if target.exists() and "NARRATIVA" not in target.read_text(encoding="utf-8"):
+        # O documento já recebeu as seções narrativas, escritas à mão. Não se sobrescreve.
+        target = ctx.root / "report.generated.md"
     target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("\n".join(out), encoding="utf-8")
+    return target
+
+
+def section_v05(ctx: Ctx) -> Path:
+    """Gera a parte de tabelas da seção "Verificação complementar (RF-VER-05)".
+
+    Vai para `data/verify/report_v05.generated.md`; as duas seções narrativas dessa parte são
+    escritas à mão no documento final.
+    """
+    res = load(ctx, "v05")
+    out: list[str] = []
+    w = out.append
+    w("## Verificação complementar (RF-VER-05)\n")
+    if not res:
+        w("RF-VER-05 não foi executada.\n")
+    else:
+        crit = res["criteria"]
+        a1, a2, a3, a4 = res["ca_051"], res["ca_052"], res["ca_053"], res["ca_054"]
+        b = res["budget"]
+        w(
+            f"Código `{code_version()}`. Mesmas regras de RF-VER-01 a RF-VER-04: somente leitura, "
+            "nada de desempenho, nada de conteúdo da janela de avaliação (toda consulta é cortada "
+            f"em 2026-09-01), semente `{SEED}`. Uso da API de informação: {res['client_stats'].get('requests', 0)} "
+            f"requisições, peso {int(b['total_weight'])}, pico de {b['peak']:.0f} em 60 s (orçamento "
+            f"{b['limit']:.0f}), {res['client_stats'].get('http_429', 0)} respostas 429.\n"
+        )
+        rows = []
+        m1, m2, m3, m4 = (crit[f"RF-VER-05 CA-05.{i}"] for i in range(1, 5))
+        rows.append(
+            [
+                "`CA-05.1`",
+                m1["rule"],
+                (
+                    f"{m1['measured']['breaks']} quebras; {m1['measured']['straddling_a_page_boundary']} atravessam "
+                    f"uma fronteira de página; {m1['measured']['queries_returning_a_missing_fill']} de "
+                    f"{m1['measured']['queries']} consultas devolveram fill que faltava"
+                ),
+                f"**{m1['status']}**",
+            ]
+        )
+        al = m2["measured"]["all"]
+        rows.append(
+            [
+                "`CA-05.2`",
+                m2["rule"],
+                (
+                    f"{al['n']} episódios; mediana {num(al['median'], 4)}, p95 {num(al['p95'], 3)}, p99 "
+                    f"{num(al['p99'], 3)}, máximo {num(al['max'], 3)} bps; {pct(al['fraction_above'])} acima de 1 bp"
+                ),
+                f"**{m2['status']}**",
+            ]
+        )
+        rows.append(
+            [
+                "`CA-05.3`",
+                m3["rule"],
+                (
+                    f"{a3['records']} registros em 168 horas; intervalo mediano {num(a3['interval_s']['median'], 3)} s; "
+                    f"horas com registro: {a3['hours_with_a_record']}/168"
+                ),
+                f"**{m3['status']}**",
+            ]
+        )
+        f9 = m4["measured"]["f9"]
+        names = list(f9)
+        rows.append(
+            [
+                "`CA-05.4`",
+                m4["rule"],
+                (
+                    f"F9 com BTC, ETH e SOL: {f9[names[0]]['at_least_50pct']} de {f9[names[0]]['wallets']}; com os "
+                    f"{f9[names[1]]['assets']} listados com equivalente: {f9[names[1]]['at_least_50pct']} de "
+                    f"{f9[names[1]]['wallets']}"
+                ),
+                f"**{m4['status']}**",
+            ]
+        )
+        w(table(["Critério", "Regra da spec", "Medido", "Status"], rows) + "\n")
+
+        # ─── CA-05.1 ───
+        w("### CA-05.1 — quebras de continuidade e paginação\n")
+        pg = a1["pagination"]
+        w(
+            f"**Como a coleta paginou:** {pg['start_of_page']}; fills não agregados; até {pg['page_max']} "
+            f"por página; a repetição do milissegundo da fronteira é descartada por {pg['dedup']}. "
+            "**A coleta original não guardou as fronteiras de página** e elas não foram reconstruídas por "
+            "suposição: para medi-las, as carteiras com quebra foram **recoletadas** com a paginação "
+            "instrumentada (segunda coleta, rotulada), e a recoleta foi comparada fill a fill com a primeira.\n"
+        )
+        rows = [
+            [
+                f"`{a}`",
+                r["pages"],
+                f"{r['count']:,}",
+                r["n_boundaries"],
+                "sim" if r["identical_to_first_collection"] and r["same_order"] else "**não**",
+            ]
+            for a, r in a1["recollection"].items()
+        ]
+        w(
+            table(
+                [
+                    "Carteira recoletada",
+                    "Páginas",
+                    "Fills na janela",
+                    "Fronteiras de página",
+                    "Idêntica à primeira coleta (fills e ordem)",
+                ],
+                rows,
+            )
+            + "\n"
+        )
+        w(
+            f"**{a1['breaks_total']} quebras em {a1['wallets_with_breaks']} carteiras** (as duas amostras juntas, "
+            f"como em RF-VER-01 e RF-VER-02). **{a1['straddling_a_page_boundary']} atravessam uma fronteira de "
+            f"página** (há uma fronteira entre os dois fills quebrados na lista da carteira) e "
+            f"**{a1['adjacent_across_a_page_boundary']} caem exatamente numa fronteira** (os dois fills são vizinhos "
+            "na lista e a fronteira os separa).\n"
+        )
+        rows = []
+        for band, kinds in a1["straddle_by_span"].items():
+            bk, ik = kinds.get("broken", {}), kinds.get("intact", {})
+            rows.append(
+                [
+                    band,
+                    f"{bk.get('crossing', 0)} de {bk.get('pairs', 0)}",
+                    f"{ik.get('crossing', 0)} de {ik.get('pairs', 0)} ({pct(ik.get('crossing', 0) / ik['pairs']) if ik.get('pairs') else '—'})",
+                ]
+            )
+        w(
+            "Pares que atravessam uma fronteira, por vão (posições entre os dois fills na lista da carteira):\n"
+        )
+        w(table(["Vão", "Quebras que atravessam", "Pares íntegros que atravessam"], rows) + "\n")
+        w(
+            "Consulta nova de cada quebra sorteada (intervalo entre os dois fills quebrados, 1 minuto de folga de cada lado, no máximo 2 páginas):\n"
+        )
+        rows = [
+            [
+                f"`{q['address'][:10]}…` {q['coin']}",
+                f"{q['gap_s'] / 3600:.1f} h",
+                q["returned"],
+                q["stored_in_range"],
+                q["missing_from_stored"],
+                q["stored_not_returned"],
+                "sim" if q["covers_whole_interval"] else "**não**",
+            ]
+            for q in a1["queries"]
+        ]
+        w(
+            table(
+                [
+                    "Quebra",
+                    "Vão no tempo",
+                    "Fills devolvidos",
+                    "Fills já gravados no intervalo",
+                    "Faltavam na coleta",
+                    "Gravados e não devolvidos",
+                    "Cobre o intervalo todo",
+                ],
+                rows,
+            )
+            + "\n"
+        )
+        c = a1["complement_all_other_breaks"]
+        w(
+            f"**Complemento, fora da spec:** as outras {c['queries']} quebras foram reconsultadas do mesmo jeito "
+            f"({c['fills_returned_total']:,} fills devolvidos): {c['covering_whole_interval']} consultas cobriram o "
+            f"intervalo todo; **{c['returning_a_missing_fill']} devolveram fill que faltava**; "
+            f"{c['with_stored_fills_not_returned']} deixaram de devolver fill já gravado.\n"
+        )
+
+        # ─── CA-05.2 ───
+        w("### CA-05.2 — divergência de PnL sobre o notional\n")
+        w(
+            "Razão `|PnL reconstruído - soma dos closedPnl| / notional negociado no episódio`, em bps, nos "
+            "episódios fechados e íntegros (zero a zero, sem inversão, sem quebra) das duas amostras. **Só razões e "
+            "contagens: nenhum valor de PnL é impresso ou gravado.**\n"
+        )
+        rows = []
+        for band, v in [*a2["by_band"].items(), ("**todos**", a2["all"]), *a2["by_sample"].items()]:
+            if v["n"]:
+                rows.append(
+                    [
+                        band if band.startswith("**") or "amostra" in band else f"{band} fills",
+                        v["n"],
+                        num(v["median"], 4),
+                        num(v["p95"], 3),
+                        num(v["p99"], 3),
+                        num(v["max"], 3),
+                        f"{v['above']} ({pct(v['fraction_above'])})",
+                    ]
+                )
+        w(
+            table(
+                [
+                    "Faixa",
+                    "Episódios",
+                    "Mediana (bps)",
+                    "p95 (bps)",
+                    "p99 (bps)",
+                    "Máximo (bps)",
+                    "Acima de 1 bp",
+                ],
+                rows,
+            )
+            + "\n"
+        )
+
+        # ─── CA-05.3 ───
+        w("### CA-05.3 — funding\n")
+        w(
+            "Formato conferido na documentação oficial (`POST /info`, `type = fundingHistory`, campos "
+            "`coin`, `startTime`, `endTime` opcional; resposta com `coin`, `fundingRate`, `premium` e `time`). A "
+            "documentação **não** informa o limite de registros por resposta, a ordenação nem a periodicidade.\n"
+        )
+        w(
+            table(
+                ["Medida", "Valor"],
+                [
+                    [
+                        "Semana consultada (BTC; bloco sorteado com a semente)",
+                        f"{a3['week']['start']} a {a3['week']['end']}",
+                    ],
+                    ["Registros devolvidos", a3["records"]],
+                    ["Campos devolvidos e tipos", a3["fields"]],
+                    [
+                        "Intervalo entre registros (min / mediana / máx, s)",
+                        f"{a3['interval_s']['min']:.3f} / {a3['interval_s']['median']:.3f} / {a3['interval_s']['max']:.3f}",
+                    ],
+                    [
+                        "Deslocamento do registro dentro da hora (min a máx, ms)",
+                        f"{a3['offset_in_hour_ms']['min']} a {a3['offset_in_hour_ms']['max']}",
+                    ],
+                    [
+                        "Horas cheias com ao menos um registro",
+                        f"{a3['hours_with_a_record']} de 168",
+                    ],
+                    ["Horas com mais de um registro", a3["hours_with_more_than_one"] or "nenhuma"],
+                    ["Registros fora das 168 horas", a3["outside_the_168_hours"]],
+                ],
+            )
+            + "\n"
+        )
+
+        # ─── CA-05.4 ───
+        w("### CA-05.4 — ativos e F9\n")
+        w(
+            f"Amostra de RF-VER-02: {a4['wallets_in_sample']} carteiras, {a4['wallets_with_fills_in_window']} com fills na "
+            "janela. Notional somado de todos os fills da janela (volume, não desempenho). Existência do perpétuo na "
+            f"Binance conferida em {len(a4['days_checked_on_binance'])} dias da janela ({', '.join(a4['days_checked_on_binance'])}): "
+            '"dias" é em quantos deles o arquivo diário do símbolo existe.\n'
+        )
+        rows = [
+            [
+                i,
+                f"`{r['coin']}`",
+                f"{r['fills']:,}",
+                pct(r["notional_share_all"], 2),
+                pct(r["notional_share_perps"], 2),
+                f"`{r['symbol']}`" if r["symbol"] else "—",
+                f"{r['days_present']}/{r['days_checked']}",
+                "sim" if r["all_days"] else ("parcial" if r["days_present"] else "não"),
+            ]
+            for i, r in enumerate(a4["top_assets"], 1)
+        ]
+        w(
+            table(
+                [
+                    "#",
+                    "Ativo",
+                    "Fills",
+                    "Notional (todos os fills)",
+                    "Notional (só perpétuos)",
+                    "Símbolo na Binance",
+                    "Dias",
+                    "Equivalente",
+                ],
+                rows,
+            )
+            + "\n"
+        )
+        rows = [
+            [
+                name,
+                v["assets"],
+                v["wallets"],
+                f"**{v['at_least_50pct']}**",
+                pct(v["share_p25"]),
+                pct(v["share_median"]),
+                pct(v["share_p75"]),
+            ]
+            for name, v in a4["f9"].items()
+        ]
+        w(
+            "Carteiras com fills na janela que teriam 50% ou mais do notional no universo (denominador: notional de todos os fills da carteira):\n"
+        )
+        w(
+            table(
+                [
+                    "Universo",
+                    "Ativos",
+                    "Carteiras",
+                    "Com 50% ou mais",
+                    "p25 da fração",
+                    "Mediana",
+                    "p75",
+                ],
+                rows,
+            )
+            + "\n"
+        )
+        w(
+            f"Listados só com equivalente em parte dos dias: {a4['listed_with_equivalent_on_some_days'] or 'nenhum'}.\n"
+        )
+
+    target = ctx.root / "report_v05.generated.md"
     target.write_text("\n".join(out), encoding="utf-8")
     return target

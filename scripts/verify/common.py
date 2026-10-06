@@ -378,6 +378,8 @@ class Collected:
     first_time: int | None = None
     #: `True` se a contagem parou cedo porque passou de `stop_after`.
     capped: bool = False
+    #: `True` se a coleta parou em `max_pages` com a última página cheia (pode haver mais).
+    truncated: bool = False
     #: Com `keep=True`: índice, em `fills`, do primeiro fill novo de cada página a partir da
     #: segunda. É onde a coleta emenda uma página na outra. A coleta original (RF-VER-01 a 04)
     #: não guardava isto; RF-VER-05 CA-05.1 recoleta carteiras para medi-lo.
@@ -393,6 +395,7 @@ def collect_fills(
     aggregate: bool = False,
     keep: bool = True,
     stop_after: int | None = None,
+    max_pages: int | None = None,
 ) -> Collected:
     """Pagina `userFillsByTime` para frente até esgotar o intervalo.
 
@@ -403,9 +406,10 @@ def collect_fills(
     paginação termina quando uma página não traz nada novo.
 
     Com `keep=False` o conteúdo é descartado e só a contagem sai. É o único modo permitido
-    para fills a partir do corte T (regra 3 do prompt 02). Com `stop_after`, para assim
-    que a contagem passa desse valor (`capped=True`): serve para provar que uma carteira
-    devolve mais de 10.000 fills sem pagar para paginar o resto.
+    para fills a partir do corte T (regra 3 do prompt 02). Com `stop_after`, para assim que a
+    contagem passa desse valor (`capped=True`): serve para provar que uma carteira devolve mais
+    de 10.000 fills sem pagar para paginar o resto. Com `max_pages`, para depois dessa
+    quantidade de páginas e diz se a última veio cheia (`truncated`: pode haver mais).
     """
     kept: list[dict[str, Any]] = []
     cursor = start_ms
@@ -437,6 +441,15 @@ def collect_fills(
         boundary = Counter(_fill_key(f) for f in page if int(f["time"]) == cursor)
         if stop_after is not None and count > stop_after:
             return Collected(kept, count, pages, first_time, capped=True, boundaries=boundaries)
+        if max_pages is not None and pages >= max_pages:
+            return Collected(
+                kept,
+                count,
+                pages,
+                first_time,
+                boundaries=boundaries,
+                truncated=len(page) >= PAGE_MAX,
+            )
     return Collected(kept, count, pages, first_time, boundaries=boundaries)
 
 
