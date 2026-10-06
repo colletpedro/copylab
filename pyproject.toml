@@ -34,6 +34,12 @@ dev = [
     "pip-audit>=2.7",
     "pytest-randomly>=4.1.0",
 ]
+# Só os scripts exploratórios de scripts/verify/ (§4.1). Nunca vão para o runtime.
+verify = [
+    "httpx>=0.28.1",
+    "polars>=1.44.2",
+    "websockets>=17.2",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -48,7 +54,7 @@ packages = ["src/copylab"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "scripts/verify"]
 # `specs/` fica fora do formatador: esta versão do ruff reescreve blocos
 # ```python dentro de Markdown, e as specs são fonte da verdade — ADRs são
 # declarados imutáveis em CLAUDE.md §2. Documento normativo não é reformatado
