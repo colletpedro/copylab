@@ -189,3 +189,120 @@ limitação está declarada no `README.md`.
 **Prompt 02 — verificação de dados** (§4.1 dos requisitos, RF-VER-01 a RF-VER-04), por
 scripts em `scripts/verify/`, fora de `src/`. Pré-requisito atendido: `make check` está
 verde. O relatório vai para `docs/` e é entrada do design.
+
+---
+
+# HANDOFF — Verificação de dados (prompt 02)
+
+**Data:** 2026-10-06
+**Escopo entregue:** os scripts de §4.1 (RF-VER-01 a RF-VER-04), a execução completa e o relatório
+[`docs/verificacao-de-dados.md`](docs/verificacao-de-dados.md).
+**Escopo deliberadamente não entregue:** qualquer coisa em `src/`, e qualquer alteração em `specs/`,
+`CLAUDE.md` ou nos ADRs. A verificação mede e reporta; as emendas que ela sugere são da conversa
+de arquitetura.
+
+## 1. O que foi criado
+
+| Arquivo | Conteúdo |
+|---|---|
+| `scripts/verify/run.py` | Orquestrador. Sobe o gravador em segundo plano, roda v01 a v04 e gera o relatório. Retomável: cache por arquivo e `results/<etapa>.json`. `--smoke` reduz tudo (3 carteiras, 2 min de gravação, 1 dia) e isola a saída em `data/verify/_smoke/` |
+| `scripts/verify/v01_schema.py` … `v04_budget.py` | Um script por requisito, cada um com `--smoke` |
+| `scripts/verify/record.py` | Gravador descartável de WebSocket (`l2Book`, `bbo`, `trades`; BTC, ETH, SOL; os dois timestamps) |
+| `scripts/verify/common.py`, `analysis.py` | Infraestrutura (orçamento de peso, cliente, paginação) e funções puras de medição |
+| `scripts/verify/report.py` | Gera o relatório a partir de `data/verify/results/` |
+| `tests/unit/test_verify_helpers.py` | Testes das ferramentas de medição, com fixtures de papel (37 testes) |
+| `tests/unit/test_architecture_read_only.py` | Estendido para varrer `scripts/**/*.py`, com guardas e prova de dente |
+| `pyproject.toml`, `uv.lock` | Grupo `verify` (`httpx`, `websockets`, `polars`); nada no runtime |
+| `docs/verificacao-de-dados.md` | O relatório |
+
+Como refazer: `uv run python scripts/verify/run.py` (cerca de 1 h 15 min; reaproveita o que está em
+`data/verify/`). Para refazer do zero, apague `data/verify/`.
+
+## 2. Resultado e verificação
+
+| Critério de pronto | Estado |
+|---|---|
+| Relatório cobre os 12 critérios, sem nenhum sem status | ✅ 8 `ok`, 1 `a emendar`, 2 `reprova`, 1 `não medido` |
+| `make check` verde | ✅ 97 testes, `mypy --strict` e `ruff` limpos |
+| Nenhum arquivo de `specs/` alterado | ✅ `git diff cc93868 HEAD -- specs CLAUDE.md` vazio |
+| Nada de `data/` no git | ✅ `data/` no `.gitignore` |
+
+Os dois `reprova` e o `não medido` são consequência de o dado real não atender à regra escrita, não de
+falha do script: ver o relatório. O rate limit foi respeitado (0 HTTP 429; pico de 1.000 contra um orçamento
+de 1.000 e um teto de 1.200).
+
+### Provas de dente
+- **RNF-09 em `scripts/`:** `import web3`, `eth_account`, `eth_keys`, `hyperliquid.exchange` e
+  `from hyperliquid import exchange` plantados em `scripts/verify/` derrubaram o teste; `hyperliquid.info`
+  passou. Encolher a varredura (`glob`, ignorar `verify`, ignorar pasta nova) derrubou os guardas. Detalhe na
+  docstring do teste.
+- **Ferramentas de medição:** orçamento sem teto, reconstrução sem o sinal do short, taxa só de saída tratada
+  como todas e paginação sem multiconjunto de fronteira derrubam testes (mutações feitas à mão).
+
+## 3. Decisões que tomei onde o prompt não decidia — revise
+
+1. **Escopo de `mypy` e cobertura (adendo 1).** `make typecheck` continua em `src tests`; `scripts/verify/` tem
+   type hints e passa no `ruff`, mas fora do `mypy` e da cobertura. Os testes de `test_verify_helpers.py`
+   carregam `common.py` e `analysis.py` por caminho (`importlib`), e não por `import`, justamente para o `mypy`
+   não seguir os scripts.
+2. **Dados brutos e a regra 2 ("nada de desempenho").** O leaderboard é guardado só com `ethAddress` e
+   `accountValue`: `windowPerformances` (PnL, ROI, volume) só teve a estrutura confirmada. Já os fills da janela
+   de seleção ficam em `data/verify/fills/` **como a API os devolveu**, o que inclui o campo `closedPnl` de cada
+   fill. Os dois pedidos do prompt (gravar amostras brutas; não gravar PnL) colidem aí, e escolhi o bruto porque a
+   conta de CA-01.4 precisa dele e porque o diretório fica fora do git. Nenhum PnL derivado foi gravado, e
+   `concordance` só devolve contagens. Se você preferir `closedPnl` removido do disco, é só reprocessar.
+3. **Fills fora da janela de seleção.** De antes de 2026-07-01 e depois de 2026-09-01 guardam-se só contagem e,
+   para os anteriores, o instante do mais antigo. O conteúdo foi descartado em memória.
+4. **O teto de 10.000 não existe na paginação por tempo**, então a contagem de retenção para cedo ao passar de
+   10.000 (um fill a mais já prova). Isso mudou o desenho no meio do caminho (ver §4).
+5. **Dois denominadores em RF-VER-02.** A spec não define "notional negociado"; reportei as duas bases (todos os
+   fills; só perpétuos do primeiro dex) e nenhuma foi escolhida.
+6. **Acréscimos que a spec não pede:** uma segunda conexão com `l2Book` `fast: true` (para medir a premissa de
+   meio segundo do ADR-0003); uma terceira hipótese (`net_close`), uma escada de tolerâncias e a conferência fill
+   a fill em CA-01.4; a mesma medição de continuidade e de `closedPnl` na amostra maior de RF-VER-02, sempre
+   rotulada como complemento; a contagem de fills de BTC, ETH e SOL na janela inteira para dimensionar o déficit de
+   CA-03.1.
+7. **Status adotados.** `reprova` para CA-03.1 (o prompt pediu "não satisfeito" quando não chega a 10.000);
+   `não medido` para CA-03.2 enquanto a amostra for menor que 10.000, em vez de `ok` sobre n = 20; `ok` para
+   CA-01.4 quando uma hipótese vence a segunda por 50 pontos percentuais (critério do script, não da spec).
+8. **Orçamento de peso de 1.000 por minuto**, 200 abaixo do teto de 1.200, com reserva pessimista de 120 por
+   página de fills e acerto pelo peso real.
+9. **Amostragem.** Os endereços são ordenados antes do sorteio, para a ordem do leaderboard (que pode embutir
+   ranking) não influenciar a amostra. A amostra depende do snapshot, que muda de hora em hora; o `sha256` do
+   snapshot está no relatório.
+10. **`ruff`:** `scripts/verify` entra em `src` (isort) e `report.py` fica isento de `E501` (Markdown em strings).
+11. **Exploração.** Antes de escrever os scripts, fiz chamadas exploratórias de formato (estrutura do leaderboard,
+    um fill de uma carteira da amostra, mensagens de WebSocket) com scripts fora do repositório; de fills só
+    olhei chaves e tipos, sem imprimir `closedPnl`.
+
+## 4. O que deu errado no caminho — registrado, não maquiado
+
+- **Retenção.** O primeiro desenho paginava todo o histórico de cada carteira a partir de 0; uma carteira com
+  31.331 fills gastou ~2.000 de peso para nada. Descobri ali que o teto de 10.000 não vale e passei a parar a
+  contagem cedo.
+- **Snapshot da assinatura.** A latência de `trades` no smoke dava p95 de 30 s: era a primeira mensagem da
+  assinatura (um lote de negócios antigos). Ela passou a ficar fora das medidas de atraso e intervalo e de CA-01.5.
+- **Classificação de ativos.** A execução completa foi feita com o código `cc93868`, que tratava moedas `#N`
+  (tokens de resultado) como "perpétuo fora do meta". Corrigi no commit `ab19d51` e **refiz a análise offline**
+  sobre os mesmos dados (nenhuma requisição nova à API de informação). A coleta de rede foi uma só (04:30 a
+  05:30 UTC de 2026-10-06); a análise foi refeita três vezes, e o relatório registra o hash da última.
+- **Uso da API na reanálise.** A reanálise zerou a tabela de requisições e peso; os valores da coleta (lidos do
+  primeiro relatório) estão em `data/verify/results/api_usage.json`, e o gerador os lê de lá.
+
+## 5. Em aberto
+
+1. **A conversa de arquitetura.** O relatório traz dez pontos de contradição com a spec; nenhum foi tratado.
+   Cada um precisa virar emenda ou ADR novo antes do design.
+2. **Push.** O repositório `https://github.com/colletpedro/copylab` existe, mas **não fiz `push` nem adicionei o
+   remote**: não foi pedido. É só dizer.
+3. **Segunda rodada de RF-VER-03.** Para validar o proxy com 10.000 fills por ativo, a amostra de líderes
+   precisaria crescer de 4 a 9 vezes; isso é decisão de escopo, não do script.
+4. **Os pontos 1 a 4 do HANDOFF da Fase 0 (§5) continuam valendo:** tolerância ao exit 5 em
+   `make test-integration`, templates com `quantlab`, CI nunca executado, cobertura trivial. O ponto 5 (typecheck
+   de `scripts/verify/`) está resolvido pelo adendo (item 1 de §3).
+5. **`data/verify/` ocupa ~200 MB** e está fora do git. Os fills brutos são reaproveitáveis pelo design.
+
+## 6. Próximo passo
+
+Levar `docs/verificacao-de-dados.md` à conversa de arquitetura **antes de qualquer outra coisa ser construída**,
+e decidir, ponto a ponto, o que vira emenda de requisitos e o que vira ADR. Só depois o gate 2 (design).
