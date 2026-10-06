@@ -17,7 +17,7 @@ Cada transição é um gate explícito. Um gate reprovado volta para a etapa ant
 
 | Spec | Versão | Requisitos | Design | Tarefas | Implementada |
 |---|---|---|---|---|---|
-| `00-plataforma/fase-1` | 1.0 | ✅ aprovada | ⬜ aguarda a verificação de dados | ⬜ | ⬜ |
+| `00-plataforma/fase-1` | 1.1 | 🟡 1.0 aprovada; **emenda 1.1 proposta, aguardando aprovação** | ⬜ aguarda a aprovação da emenda 1.1 | ⬜ | ⬜ |
 
 ## ADRs
 
@@ -25,10 +25,10 @@ Numerados e imutáveis. Quando uma decisão muda, cria-se um ADR novo que declar
 
 | # | Título | Status |
 |---|---|---|
-| 0001 | Usar fills públicos da Hyperliquid como fonte de sinal | aceito |
+| 0001 | Usar fills públicos da Hyperliquid como fonte de sinal | aceito, com errata de 2026-10-06 |
 | 0002 | Espelhar a exposição relativa do líder, com teto de alavancagem de 1x | aceito |
-| 0003 | Executar o seguidor em t + Δ, ao pior preço observado | aceito |
-| 0004 | Avaliar em duas rotas: triagem retrospectiva e veredito prospectivo | aceito |
+| 0003 | Executar o seguidor em t + Δ, ao pior preço observado | aceito, com errata de 2026-10-06 |
+| 0004 | Avaliar em duas rotas: triagem retrospectiva e veredito prospectivo | aceito, com errata de 2026-10-06 |
 | 0005 | Liberar um piloto de US$ 50 pela Rota A e por uma semana de consistência | aceito |
 
 ## Roadmap
@@ -36,8 +36,8 @@ Numerados e imutáveis. Quando uma decisão muda, cria-se um ADR novo que declar
 | Fase | Escopo | Estado |
 |---|---|---|
 | 0 | Fundação: repositório, CI e convenções herdadas do quantlab | concluída |
-| 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | não iniciada |
-| 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | requisitos aprovados |
+| 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | RF-VER-01 a RF-VER-04 executadas em 2026-10-06 (`docs/verificacao-de-dados.md`); RF-VER-05 (complementar) proposta na emenda 1.1 |
+| 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | requisitos 1.0 aprovados; emenda 1.1 proposta, aguardando aprovação |
 | 1B | Semana ao vivo: 7 dias de livro gravado e o gate do piloto | depende de 1A |
 | 1C | Veredito do estudo: 30 dias de avaliação prospectiva | depende de 1B |
 | 2 | Piloto com dinheiro real, limitado a US$ 50, com spec própria | bloqueada até o gate do piloto ser atingido |

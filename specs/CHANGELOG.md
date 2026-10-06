@@ -2,6 +2,33 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versionamento por spec, não global.
 
+## 2026-10-06
+
+### fase-1-requirements 1.1 — emenda proposta, aguardando aprovação
+
+Resultado da verificação de dados (`docs/verificacao-de-dados.md`): dez pontos contradisseram os requisitos ou os ADRs. A versão 1.0 segue aprovada; a 1.1 está **proposta** e só vale depois de aprovada. O que muda:
+
+1. **Sem teto de 10.000 fills** — RF-ING-02 CA-02.1 e CA-02.3, F3, premissa 14.
+2. **Tolerância de PnL** — RF-ING-04 CA-04.2, D20 (1 bp do notional do episódio, sujeita a RF-VER-05 CA-05.2).
+3. **Quebras de continuidade** — RF-ING-03 CA-03.2 e CA-03.3, RF-SIM-02 CA-02.8.
+4. **Universo por regra, no lugar da lista fixa** — RF-SEL-08, D7, D21, RF-COL-05 CA-05.2, RF-ANA-01 CA-01.4.
+5. **Pool de candidatas amostrado** — RF-SEL-07, D17, RF-SEL-02 CA-02.1.
+6. **Cadência do livro** — RF-COL-01 CA-01.1, RF-SIM-03 CA-03.2, D19.
+7. **Regra de lacuna** — RF-COL-02 CA-02.2.
+8. **Classes de fill** — RF-ING-02 CA-02.4 e CA-02.5, F10.
+9. **Agregação** — D18.
+10. **Proxy** — RF-ING-06 CA-06.3 e CA-06.4, RF-COL-05.
+
+**Critérios adicionados** — RF-VER-05 (verificação complementar, CA-05.1 a CA-05.4). **Questões** — Q6 e Q7 abertas e fechadas na mesma emenda, como D7 e D17.
+
+### ADR-0001, ADR-0003, ADR-0004 — errata
+
+Uma errata de 2026-10-06 acrescentada ao fim de cada um. **O corpo de um ADR aceito não mudou.** 0001: não há teto de 10.000 fills, há mais classes de fill, a continuidade quebra em dado real. 0003: o livro default chega a cada 5,4 s, e só a assinatura rápida chega perto de 0,5 s. 0004: o limite de histórico que justificava descartar o walk-forward não existe, e o pool de candidatas passa a ser amostrado.
+
+### CLAUDE.md
+
+A regra de ADR-0001 sobre continuidade de posição distingue seleção (inelegível) de avaliação (mudança não observada incorporada no fill seguinte e contada) e fixa que os fills são sempre não agregados.
+
 ## 2026-10-05
 
 ### fase-1-requirements 1.0 — aprovada

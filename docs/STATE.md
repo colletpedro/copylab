@@ -7,30 +7,31 @@ O estado dos gates mora em [`specs/README.md`](../specs/README.md). Este arquivo
 
 ## Onde estamos
 
-**Fase 0 (fundação) concluída em 2026-10-05. Verificação de dados (§4.1) executada em
-2026-10-06**, com relatório em [`docs/verificacao-de-dados.md`](verificacao-de-dados.md). Nenhum
-código de domínio existe em `src/`. Detalhe, decisões e pendências em
-[`HANDOFF.md`](../HANDOFF.md).
+**Fase 0 concluída (2026-10-05). Verificação de dados (RF-VER-01 a RF-VER-04) executada em
+2026-10-06**, com relatório em [`docs/verificacao-de-dados.md`](verificacao-de-dados.md). **Emenda 1.1
+dos requisitos proposta, aguardando aprovação** (2026-10-06): ela resolve os dez pontos em que a
+verificação contradisse a spec e acrescenta RF-VER-05. Nenhum código de domínio existe em `src/`.
+O repositório está publicado em `https://github.com/colletpedro/copylab`, e o primeiro CI passou.
+Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
 | Item | Estado |
 |---|---|
-| Requisitos da Fase 1 | ✅ aprovados, versão 1.0 (nenhuma emenda feita: a verificação só reporta) |
-| ADRs 0001 a 0005 | ✅ aceitos |
-| Fundação (Fase 0) | ✅ `make check` verde |
-| Verificação de dados (§4.1) | ✅ executada; **dos 12 critérios: 8 `ok`, 1 `a emendar`, 2 `reprova`, 1 `não medido`** (tabela no relatório) |
-| Design da Fase 1 | ⬜ aguarda a conversa de arquitetura sobre o relatório |
+| Requisitos da Fase 1 | 🟡 1.0 aprovada; **emenda 1.1 proposta, aguardando aprovação** |
+| ADRs 0001 a 0005 | ✅ aceitos; 0001, 0003 e 0004 com errata de 2026-10-06 (corpo inalterado) |
+| Fundação (Fase 0) | ✅ `make check` verde; CI verde no GitHub |
+| Verificação de dados (§4.1) | ✅ RF-VER-01 a 04 executadas: 8 `ok`, 1 `a emendar`, 2 `reprova`, 1 `não medido` |
+| Verificação complementar (RF-VER-05) | ⬜ proposta na emenda 1.1; execução em curso |
+| Design da Fase 1 | ⬜ aguarda a aprovação da emenda 1.1 |
 | Plano de tarefas | ⬜ |
 | Implementação | ⬜ |
 | Coletor prospectivo | ⬜ (primeira coisa a entrar em operação, ADR-0004) |
 
 ## Próximo
 
-**Conversa de arquitetura sobre o relatório de verificação**, antes de qualquer outra coisa ser
-construída. O relatório lista, na seção "O que contradiz a spec", dez pontos em que o dado real
-difere do que os requisitos ou os ADRs assumem (teto de 10.000 fills que não se aplica,
-conciliação de `closedPnl` na tolerância de 1e-6, quebras de continuidade, cobertura do
-universo, cadência do `l2Book`, entre outros). Eles precisam virar emenda de spec ou ADR novo
-**antes** do design. A verificação não alterou nenhuma spec.
+1. Rodar a verificação complementar RF-VER-05 (quebras e paginação, divergência de PnL sobre o notional,
+   funding, ativos e F9). Ela alimenta a decisão sobre a emenda.
+2. **Conversa de arquitetura:** decidir a aprovação da emenda 1.1, com o relatório e a seção de RF-VER-05.
+   Nada é implementado com base na emenda enquanto ela estiver só proposta.
 
 ## O que existe no código
 
