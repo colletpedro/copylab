@@ -634,3 +634,24 @@ contra o instante em que `window open` o vê no remoto.
 
 Gate de design na conversa de arquitetura. Só depois dele, o plano de tarefas (`fase-1-tasks.md`), cuja primeira
 tarefa renomeia o teste de somente leitura e cria `LookaheadError`.
+
+---
+
+# HANDOFF — Aprovações e Bloco 0 (prompt 06)
+
+**Data:** 2026-10-07
+**Escopo:** registrar as aprovações do gate de design e do plano de tarefas; implementar o Bloco 0 do plano
+(T-001 a T-005).
+**Fora do escopo, de propósito:** tudo do Bloco A em diante (coletor, clientes HTTP e WebSocket, simulador).
+
+## 1. Parte 1 — documentos
+
+- A entrega estava em `entrega-06/`, com os caminhos do repositório. Copiei os seis arquivos e removi a pasta.
+  `git diff --stat` mostrou cinco modificados (requisitos, design, ADRs 0006 a 0008) e um novo
+  (`fase-1-tasks.md`), e nada mais.
+- Nos três ADRs, o diff é só a linha de status (`proposto — ...` para `aceito (2026-10-07, ...)`).
+- No plano de tarefas, a única edição: status `aprovado — gate 3 em 2026-10-07`.
+- Índices: `specs/README.md` (requisitos 1.3 e design 1.0 aprovados, tarefas aprovadas, implementação em
+  andamento; ADRs 0006 a 0008 aceitos; roadmap 1A em implementação), `specs/CHANGELOG.md` e `docs/STATE.md`.
+- **`Phase 1 Tasks.md` na raiz**, não rastreado: idêntico ao `fase-1-tasks.md` entregue, exceto pela linha de
+  status que eu editei depois. Não apaguei (ver §Em aberto).

@@ -4,6 +4,22 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ## 2026-10-07
 
+### fase-1-requirements 1.3 — aprovada
+
+Aprovada no gate de design, sem mudança de conteúdo em relação à proposta descrita abaixo. Só o status, o próximo gate e o histórico do documento mudaram.
+
+### fase-1-design 1.0 — aprovado (gate 2)
+
+Aprovado. Uma precisão em relação à 0.2, vinda da conferência do Claude Code: `window open` recusa também um commit com data no futuro, o que fecha a brecha de datar o commit à mão (§4.4).
+
+### ADR-0006, ADR-0007, ADR-0008 — aceitos
+
+Aceitos com o gate de design. Só a linha de status mudou.
+
+### fase-1-tasks 0.1 — aprovado (gate 3)
+
+Plano de tarefas novo, sobre os requisitos 1.3 e o design 1.0. Oito blocos (0 e A a H), em ordem de calendário: o coletor vem logo depois da base, porque cada dia sem ele é um dia a menos de livro gravado. Marcos operacionais (M) separados das tarefas de código (T). A implementação começa pelo Bloco 0.
+
 ### fase-1-requirements 1.3 — proposta, aguardando o gate de design
 
 Resposta à leitura cruzada do design. O que muda:
