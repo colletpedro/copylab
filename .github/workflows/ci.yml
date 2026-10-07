@@ -66,6 +66,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  windows:
+    name: Testes no Windows (máquina do coletor)
+    # O coletor roda num Windows nativo (D10). Trava, parada e troca de nome de arquivo
+    # têm caminhos próprios nesse sistema, e só um runner Windows os exercita. Lint, tipos
+    # e cobertura ficam no job "quality"; aqui roda a suíte unitária.
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Instala uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.15"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Instala Python 3.12
+        run: uv python install 3.12
+
+      - name: Instala dependências
+        run: uv sync --all-groups
+
+      - name: Testes
+        run: uv run pytest
+
   audit:
     name: Auditoria de dependências
     runs-on: ubuntu-latest
