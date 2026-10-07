@@ -7,6 +7,7 @@ dois permitiria mudar um parâmetro congelado com uma variável de ambiente.
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Any, Final
 
 from pydantic import Field, ValidationError, field_validator
@@ -40,6 +41,11 @@ class Settings(BaseSettings):
         default="dev",
         description="dev | development | local | test: log legível. Qualquer outro "
         "valor (ex.: prod): log em JSON, uma linha por evento.",
+    )
+    data_dir: Path | None = Field(
+        default=None,
+        description="Diretório de dados (ADR-0006), fora do git. Só copylab.storage o "
+        "usa; sem ele, abrir o armazenamento é ConfigError.",
     )
 
     def __init__(self, **data: Any) -> None:
