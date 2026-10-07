@@ -34,16 +34,10 @@ test: ## Suíte default (integração desmarcada) com cobertura — o que o CI r
 test-unit: ## Apenas os testes marcados como unit
 	$(RUN) pytest -m unit
 
-test-integration: ## Apenas os testes marcados como integration
-	@# pytest devolve 5 quando não coleta nada. Na Fase 0 ainda não existe
-	@# teste de integração, e um alvo vermelho por ausência seria ruído.
-	@# REMOVER esta tolerância assim que o primeiro teste de integração entrar:
-	@# a partir daí, "nenhum teste coletado" significa que a suíte sumiu.
-	@$(RUN) pytest -m integration; status=$$?; \
-		if [ $$status -eq 5 ]; then \
-			echo "Nenhum teste de integração ainda (Fase 0)."; exit 0; \
-		fi; \
-		exit $$status
+test-integration: ## Apenas os testes marcados como integration (precisam de rede)
+	@# Sem tolerância ao código 5 (nada coletado): desde o coletor (T-014) existe teste de
+	@# integração, e "nenhum teste coletado" significaria que a suíte sumiu.
+	$(RUN) pytest -m integration -s
 
 # ─── Qualidade ───────────────────────────────────────────────────────────────
 
