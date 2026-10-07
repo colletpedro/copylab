@@ -199,6 +199,15 @@ class Metrics(_Section):
     annualization_days: StrictInt
 
 
+class BookRecord(_Section):
+    max_book_silence_s: StrictInt
+    cost_min_day_coverage_pct: StrictFloat
+
+    @property
+    def max_book_silence_ms(self) -> int:
+        return self.max_book_silence_s * MS_PER_SECOND
+
+
 class Filters(_Section):
     f1_role: StrictStr
     f2_min_account_value_usd: StrictFloat
@@ -255,7 +264,8 @@ class Binance(_Section):
 
 
 class Params(_Section):
-    """Todos os valores de §7.2 e §7.3 dos requisitos e a regra de nomes da Binance."""
+    """Todos os valores de §7.2 e §7.3 dos requisitos, os limiares do livro gravado que o
+    design 1.1 (§3.9) põe aqui e a regra de nomes da Binance."""
 
     universe: Universe
     route_a: RouteA
@@ -274,6 +284,7 @@ class Params(_Section):
     ranking: Ranking
     control: Control
     metrics: Metrics
+    book_record: BookRecord
     filters: Filters
     binance: Binance
 

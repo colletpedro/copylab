@@ -122,6 +122,12 @@ def test_parameter_file_holds_every_value_of_7_2_and_7_3(params: Params) -> None
     assert (params.control.cohorts, params.control.seed) == (1_000, 20_261_005)
     assert params.metrics.annualization_days == 365
 
+    # Design 1.1 §3.9: lacuna com mais de 10 s sem livro (RF-COL-02 CA-02.2); cobertura
+    # de 95% para um dia entrar na medida de custo (RF-COL-05 CA-05.2).
+    assert params.book_record.max_book_silence_s == 10
+    assert params.book_record.max_book_silence_ms == 10_000
+    assert params.book_record.cost_min_day_coverage_pct == pytest.approx(95.0)
+
     # §7.3 F1 a F10 (F3 usa o teto de fills e a tolerância de PnL, conferidos acima).
     f = params.filters
     assert f.f1_role == "user"

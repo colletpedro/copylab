@@ -152,6 +152,18 @@ seed = 20261005
 # "Anualização: √365, dia UTC" — RF-ANA-01 CA-01.1
 annualization_days = 365
 
+# ─── Livro gravado (design 1.1 §3.9: número que muda o resultado mora aqui, mesmo
+# fixado num critério e não na tabela de §7.2) ─────────────────────────────────
+
+[book_record]
+# "mais de 10 segundos sem retrato do livro de um ativo [...] o intervalo também é
+# registrado como lacuna" — RF-COL-02 CA-02.2. Silêncio de até 10 s não é lacuna
+# (limiar inclusivo, design §3.6); acima disso, é.
+max_book_silence_s = 10
+# "nos 3 primeiros dias UTC completos em que a cobertura dele foi de ao menos 95%" —
+# RF-COL-05 CA-05.2 (cobertura mínima de um dia para entrar na medida de custo)
+cost_min_day_coverage_pct = 95.0
+
 # ─── Filtros de elegibilidade (§7.3; D15) ─────────────────────────────────────
 # F3 não tem chave própria: os limiares dele são [ingestion] e [reconciliation].
 
@@ -168,7 +180,8 @@ f4_min_closed_episodes = 20
 f5_blocks = 8
 f5_block_days = 7
 f5_min_active_blocks = 6
-# F6 "Duração mediana do episódio: entre 1 hora e 7 dias"
+# F6 "Duração mediana do episódio: entre 1 hora e 7 dias". As duas pontas contam
+# (design §3.6: todo limiar é inclusivo).
 f6_min_median_duration_h = 1.0
 f6_max_median_duration_days = 7.0
 # F7 "Entradas a mercado: ≥ 50% do notional de abertura com crossed = true"
@@ -187,7 +200,7 @@ f10_max_liquidated_fills = 0
 quote = "USDT"
 k_prefix = "k"
 k_replacement = "1000"
-# Exceções: nenhuma. Os 27 perpétuos com equivalente encontrados na verificação seguem
+# Exceções: nenhuma, confirmado pelo Pedro em 2026-10-07. Os 27 perpétuos com equivalente encontrados na verificação seguem
 # a regra (docs/verificacao-de-dados.md, RF-VER-05 CA-05.4; kBONK e kPEPE viram
 # 1000BONKUSDT e 1000PEPEUSDT). Uma exceção entra assim, por emenda:
 #   [[binance.exceptions]]
