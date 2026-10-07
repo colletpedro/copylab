@@ -291,6 +291,7 @@ name = "copylab"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "polars" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "structlog" },
@@ -316,6 +317,7 @@ verify = [
 
 [package.metadata]
 requires-dist = [
+    { name = "polars", specifier = ">=1.44.2" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pydantic-settings", specifier = ">=2.4" },
     { name = "structlog", specifier = ">=24.4" },
