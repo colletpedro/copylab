@@ -755,11 +755,16 @@ Em ordem decrescente de impacto.
 | Testes de invariante novos com a mutação na docstring | ✅ os sete do Bloco 0 |
 | Commits por caminho, sem `git add .`/`-A`/`commit -a` | ✅ |
 | Nada do Bloco A em diante | ✅ nenhum cliente HTTP ou WebSocket, nenhum simulador |
+| CI depois do `push` | ✅ execução 37642547677, sobre `9269f89`: os dois jobs verdes |
 
 **O que deu errado no caminho.** O commit de T-003 foi feito uma vez com o `make lint` vermelho: o
 `grep` no fim do encadeamento engoliu o código de saída do `make`. O commit ainda não estava
 publicado; corrigi o teste e fiz `--amend`. A partir dali, todo commit ficou condicionado ao
 código de saída do `make check`.
+
+O `push` foi recusado quatro vezes pelo GitHub com `remote rejected (Internal Server Error)`, inclusive com um
+único commit de documentação, com o status do GitHub normal e o `--dry-run` passando. Na quinta tentativa,
+minutos depois, passou sem nenhuma mudança. Foi do lado do servidor.
 
 ## 5. Em aberto — perguntas para a conversa de arquitetura
 

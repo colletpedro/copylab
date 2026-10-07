@@ -24,7 +24,7 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | Verificação complementar (RF-VER-05) | ✅ executada em 2026-10-06: 4 `ok` |
 | Design da Fase 1 | ✅ 1.0 aprovado (gate 2, 2026-10-07) |
 | Plano de tarefas | ✅ 0.1 aprovado (gate 3, 2026-10-07) |
-| Bloco 0 — base (T-001 a T-005) | ✅ implementado em 2026-10-07; `make check` verde (ver HANDOFF sobre o CI) |
+| Bloco 0 — base (T-001 a T-005) | ✅ implementado em 2026-10-07; `make check` e CI verdes |
 | Bloco A — coletor (T-010 a T-014) | ⬜ próximo |
 | Demais blocos (B a H) | ⬜ |
 
