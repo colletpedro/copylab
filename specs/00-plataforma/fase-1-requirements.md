@@ -1,8 +1,8 @@
 # Fase 1 (estudo de simulação) — Requisitos
 
-**Status:** proposta — versão 1.2. Fecha a emenda da verificação de dados e aguarda aprovação junto com o gate de design
-**Versão:** 1.2
-**Data:** 2026-10-06
+**Status:** proposta — versão 1.3. Fecha a emenda da verificação de dados e aguarda aprovação junto com o gate de design
+**Versão:** 1.3
+**Data:** 2026-10-07
 **Próximo gate:** `specs/00-plataforma/fase-1-design.md` (em revisão)
 
 > **Nota de organização:** como na Fase 1 do quantlab, esta fase é uma fatia vertical que atravessa vários módulos, e o critério de aceitação é único ("o estudo roda ponta a ponta e não mente"). Este documento é a fonte da verdade da fase. O pacote se chama `copylab` (D16).
@@ -54,7 +54,7 @@ A fase também decide, por regra escrita antes dos dados, se um piloto com dinhe
 | **Exposição bruta** | Soma dos módulos dos notionals de todas as posições abertas. |
 | **Patrimônio** | Saldo em USDC mais o PnL não realizado das posições abertas. |
 | **Alavancagem** | Exposição bruta dividida pelo patrimônio. |
-| **Teto de alavancagem** | Máximo de alavancagem que o seguidor pode ter logo após executar as ordens de um evento. Default 1,0. |
+| **Teto de alavancagem** | Máximo de alavancagem a que uma ordem do seguidor pode levá-lo. Default 1,0. |
 | **Funding** | Pagamento horário entre posições long e short de um perpétuo. Taxa positiva: long paga. |
 | **Episódio** | Intervalo em que a posição do líder em um ativo sai de zero e volta a zero. Inversão de sinal encerra um episódio e abre outro. |
 | **Evento do líder** | O conjunto dos fills de um líder em um ativo no mesmo milissegundo. Uma ordem do líder costuma se dividir em muitos fills com o mesmo instante, e o seguidor decide uma vez só. O instante do evento é o `time` desses fills. |
@@ -166,7 +166,7 @@ A posição do líder é reconstruída dos fills. Um fill ausente corrompe tudo 
 
 **RF-ING-07 — Limites da API e resiliência**
 
-- **CA-07.1** — *Dado* qualquer sequência de requisições, *quando* a ingestão executa, *então* o peso acumulado por minuto nunca excede o limite configurado (default 1.200). Verificável com provedor falso.
+- **CA-07.1** — *Dado* qualquer sequência de requisições, *quando* a ingestão executa, *então* o peso acumulado por minuto nunca excede o limite configurado (default 1.000, abaixo do teto de 1.200 da corretora). Verificável com provedor falso.
 - **CA-07.2** — *Dado* que a coleta de uma carteira falha, *quando* a ingestão de uma lista executa, *então* as demais são processadas e a falha é reportada ao final com código de saída diferente de zero.
 - **CA-07.3** — *Dado* uma resposta de limite excedido, *quando* a ingestão a recebe, *então* ela espera e repete com recuo; esgotadas as tentativas, falha explicitamente.
 
@@ -202,7 +202,7 @@ A posição do líder é reconstruída dos fills. Um fill ausente corrompe tudo 
 **RF-COL-05 — Conferência do proxy contra o livro**
 
 - **CA-05.1** — *Dado* um dia com livro gravado e preço proxy disponível, *quando* o relatório é gerado, *então* informa, por ativo, mediana e p95 da diferença em bps entre o ponto médio do livro e o preço proxy do mesmo segundo. A medida é informativa e entra na declaração de vieses.
-- **CA-05.2** — *Dado* ao menos 3 dias de gravação de um ativo, *quando* o relatório é gerado, *então* informa a mediana, ponderada pelo tempo, do meio-spread em bps daquele ativo, medida nos 3 primeiros dias UTC completos em que a cobertura dele foi de ao menos 95%. Esse valor é gravado uma vez num arquivo de parâmetros de custo, antes da primeira seleção, e alimenta o slippage do cenário primário da Rota A (§7.2).
+- **CA-05.2** — *Dado* ao menos 3 dias de gravação de um ativo, *quando* o relatório é gerado, *então* informa a mediana, ponderada pelo tempo, do meio-spread em bps daquele ativo, medida nos 3 primeiros dias UTC completos em que a cobertura dele foi de ao menos 95%. Esse valor é gravado uma vez por ativo num arquivo de parâmetros de custo, antes da seleção que o usa, e nunca é alterado depois. Ele alimenta o slippage do cenário primário da Rota A (§7.2).
 
 ---
 
@@ -238,7 +238,8 @@ A seleção com corte T não pode depender de nada que aconteceu a partir de T.
 
 - **CA-05.1** — *Dado* uma seleção concluída, *quando* ela termina, *então* grava um arquivo de congelamento com rota, T, universo, coorte, N\* por líder, parâmetros, incluídos os de custo por ativo, hashes dos dados e versão do código.
 - **CA-05.2** — *Dado* a simulação da janela de avaliação, *quando* não há arquivo de congelamento, ou os hashes ou parâmetros divergem dele, *então* ela se recusa a rodar.
-- **CA-05.3** — *Dado* a Rota B, *quando* o congelamento é publicado no repositório remoto, *então* a janela de avaliação começa na primeira meia-noite UTC posterior à publicação.
+- **CA-05.3** — *Dado* a Rota B, *quando* o congelamento é publicado no repositório remoto, *então* a janela de avaliação começa na primeira meia-noite UTC posterior à publicação. O instante de publicação é o do commit do congelamento, e a presença dele no remoto é conferida antes dessa meia-noite.
+- **CA-05.4** — *Dado* uma rota sem arquivo de congelamento, *quando* se pede a ingestão de qualquer dado da janela de avaliação dela, fills ou dados de mercado, *então* o comando se recusa. O mesmo vale para a janela de seleção da Rota B enquanto a Rota A não estiver congelada, porque ela contém a avaliação da Rota A.
 
 **RF-SEL-06 — Coortes de controle**
 
@@ -259,7 +260,7 @@ O universo não é uma lista fixa. É formado a cada seleção, por critérios d
 - **CA-08.2** — *Dado* a seleção, *quando* ela executa, *então* o universo é formado antes dos filtros que dependem dele e fica gravado no congelamento.
 - **CA-08.3** — *Dado* o universo formado, *quando* o relatório é emitido, *então* informa, para cada ativo considerado, qual condição o deixou fora, e a cobertura do universo sobre o notional das candidatas, em todos os fills e só em perpétuos do primeiro dex.
 - **CA-08.4** — *Dado* a Rota B, *quando* o congelamento é publicado, *então* a janela de avaliação só começa numa meia-noite UTC em que o coletor já esteja gravando todos os ativos do universo.
-- **CA-08.5** — *Dado* qualquer rota, *quando* os dados de mercado são coletados, *então* BTC está sempre incluído, no coletor e no preço proxy, mesmo que fique fora do universo. O benchmark depende dele.
+- **CA-08.5** — *Dado* qualquer rota, *quando* os dados de mercado são coletados, *então* BTC está sempre incluído, no coletor, no preço proxy e na medida de custo, mesmo que fique fora do universo. O benchmark depende dele.
 
 ---
 
@@ -270,7 +271,7 @@ Uma ordem do seguidor executada no instante τ só pode depender de eventos do l
 
 - **CA-01.1** — *Dado* um evento do líder no instante t, *quando* a ordem correspondente do seguidor é executada, *então* o instante de execução é t + Δ, ou a primeira observação de preço existente a partir dele.
 - **CA-01.2** — *Dado* uma simulação concluída e um corte c, *quando* (i) todo evento do líder com instante > c, (ii) todo preço posterior a c + Δ e à última observação consumida pelas execuções até c + Δ e (iii) todo funding posterior a esse mesmo instante são alterados arbitrariamente e a simulação é refeita, *então* o conjunto de ordens executadas até c + Δ é idêntico. **Este é um dos dois testes de aceitação da fase.**
-- **CA-01.3** — *Dado* que o simulador está processando o instante τ, *quando* qualquer componente pede um evento do líder posterior a τ − Δ ou um preço posterior ao permitido para τ, *então* a leitura levanta exceção.
+- **CA-01.3** — *Dado* que o simulador está processando o instante τ, *quando* qualquer componente pede um evento do líder posterior a τ − Δ ou um preço posterior ao permitido para τ, *então* a leitura levanta exceção. O laço pode conhecer de antemão os instantes em que haverá evento ou observação, para saber quando acordar, mas nunca o conteúdo deles.
 - **CA-01.4** — *Dado* um evento do líder cujo t + Δ cai depois do fim da janela, *quando* a simulação termina, *então* a ordem não é executada e é reportada como pendente, sem afetar a contabilidade.
 - **CA-01.5** — *Dado* que não existe observação de preço em t + Δ, *quando* a ordem é executada, *então* usa a próxima observação existente, qualquer que seja a distância, e o atraso efetivo fica registrado na ordem. A ordem é processada nesse instante, com o patrimônio e os preços dele, e o que o seguidor sabe do líder são os eventos cujas ordens já foram processadas (ADR-0008). Nenhum preço é inventado.
 
@@ -278,12 +279,12 @@ Uma ordem do seguidor executada no instante τ só pode depender de eventos do l
 Ver ADR-0002.
 
 - **CA-02.1** — *Dado* que, após um evento, a posição do líder no ativo c tem notional n, *quando* o alvo é calculado, *então* o alvo do seguidor em c é `pico × (n / N*) × patrimônio do seguidor`, com o sinal da posição do líder.
-- **CA-02.2** — *Dado* que a soma dos módulos dos alvos excede `teto × patrimônio`, *quando* o alvo é calculado, *então* todos os alvos são multiplicados pelo mesmo fator para caber no teto, e as reduções são executadas antes dos aumentos. Num evento em um ativo, os demais ativos daquele líder só recebem ordem se for uma redução exigida pelo teto.
+- **CA-02.2** — *Dado* que a soma dos módulos dos alvos excede `teto × patrimônio`, *quando* o alvo é calculado, *então* todos os alvos são multiplicados pelo mesmo fator para caber no teto, e as reduções são executadas antes dos aumentos. Num evento em um ativo, os demais ativos daquele líder só recebem ordem se for uma redução exigida pelo teto, no mínimo necessário para voltar a ele, repartido em proporção ao que cada um excede do seu alvo.
 - **CA-02.3** — *Dado* uma posição do líder que já estava aberta no início da janela, *quando* a simulação executa, *então* o alvo do seguidor naquele ativo é zero até a posição do líder voltar a zero. Só episódios abertos a partir de zero dentro da janela são copiados.
 - **CA-02.4** — *Dado* a diferença entre alvo e posição atual, *quando* a ordem é formada, *então* o tamanho é arredondado para baixo ao lote. Ordem com notional abaixo do mínimo não é enviada, é contada como "abaixo do mínimo", e a diferença é reavaliada no próximo evento daquele líder naquele ativo.
 - **CA-02.5** — *Dado* que o líder zera a posição em um ativo, *quando* o evento é processado, *então* o seguidor zera a sua integralmente, mesmo abaixo do mínimo.
 - **CA-02.6** — *Dado* a variante só compras, *quando* um alvo é negativo, *então* ele é substituído por zero e todo o resto do cálculo é idêntico.
-- **CA-02.7** — *Dado* que as ordens de um evento foram executadas, *quando* o estado é inspecionado, *então*: (i) nenhuma ordem que aumenta a exposição deixou a exposição bruta, aos preços de execução, acima de `teto × patrimônio`, já descontada a taxa da ordem; (ii) se a exposição estava acima do teto porque o preço andou entre eventos, as reduções exigidas pelo teto foram enviadas antes de qualquer aumento. A única redução que fica sem enviar é a que cai abaixo da ordem mínima (CA-02.4): o excesso que ela deixa é contado e, enquanto ele durar, (i) impede qualquer aumento. Deriva acima do teto entre eventos é permitida e reportada como alavancagem máxima observada.
+- **CA-02.7** — *Dado* que as ordens de um evento foram executadas, *quando* o estado é inspecionado, *então*: (i) nenhuma ordem que aumenta a exposição deixou a exposição bruta, aos preços de execução, acima de `teto × patrimônio`, já descontada a taxa da ordem; (ii) se a exposição estava acima do teto porque o preço andou entre eventos, as reduções exigidas pelo teto foram enviadas antes de qualquer aumento. Duas reduções ficam sem enviar: a que cai abaixo da ordem mínima (CA-02.4) e a de um ativo sem observação de preço naquele instante. O excesso que elas deixam é contado e, enquanto ele durar, (i) impede qualquer aumento. Deriva acima do teto entre eventos é permitida e reportada como alavancagem máxima observada.
 - **CA-02.8** — *Dado* qualquer fill do líder, *quando* a posição dele é atualizada, *então* ela é a posição anterior declarada no fill mais o tamanho com sinal. Se essa posição anterior não for a que o simulador tinha, houve mudança não observada: ela é incorporada naquele instante, contada no relatório, e nunca retroage nem é interpolada.
 
 **RF-SIM-03 — Preço de execução**
@@ -291,7 +292,7 @@ Ver ADR-0003.
 
 - **CA-03.1** — *Dado* a Rota A, *quando* uma ordem é executada, *então* a compra sai ao preço máximo e a venda ao preço mínimo do segundo do proxy que contém o instante de execução, mais o slippage configurado, contra o seguidor.
 - **CA-03.2** — *Dado* a Rota B, *quando* uma ordem é executada, *então* o melhor preço vem do canal de melhor compra e venda, usando, entre a última observação até o instante de execução e a primeira depois dele, a pior para o seguidor. A profundidade além do melhor nível vem do retrato rápido do livro mais recente.
-- **CA-03.3** — *Dado* a Rota B e uma ordem maior que a profundidade gravada, *quando* ela é executada, *então* só a parte disponível é executada; o resto é contado como "profundidade excedida" e reavaliado no próximo evento.
+- **CA-03.3** — *Dado* a Rota B e uma ordem maior que a profundidade gravada, *quando* ela é executada, *então* só a parte disponível é executada; o resto é contado como "profundidade excedida" e reavaliado no próximo evento daquele líder naquele ativo.
 - **CA-03.4** — *Dado* a Rota B, *quando* a comparação de fontes de preço é pedida, *então* a mesma coorte e o mesmo cenário são simulados sobre o mesmo intervalo, uma vez com o livro gravado e uma vez com o preço proxy, e a diferença de retorno é reportada em pontos percentuais.
 
 **RF-SIM-04 — Custos**
@@ -381,7 +382,7 @@ Ver ADR-0005. O gate confere se a semana ao vivo é consistente com o que a Rota
 python scripts/verify/run.py        # verificação de dados (§4.1), fora do pacote
 python -m copylab ingest leaderboard
 python -m copylab ingest fills --route A --window selection
-python -m copylab ingest market --from 2026-07-01 --to 2026-09-30
+python -m copylab ingest market --route A --window selection
 python -m copylab collect
 python -m copylab collect status
 python -m copylab collect compact
@@ -393,7 +394,7 @@ python -m copylab evaluate --freeze preregistro/rota-a.json
 python -m copylab gate --freeze preregistro/rota-b.json
 ```
 
-A ingestão de fills é pedida por rota e por janela, e não por datas, para que o comando possa recusar a janela de avaliação antes do congelamento. O corte da Rota A vem do arquivo de parâmetros; o da Rota B é argumento, e a data acima é só exemplo.
+A ingestão, de fills e de dados de mercado, é pedida por rota e por janela, e não por datas, para que o comando possa recusar a janela de avaliação antes do congelamento (RF-SEL-05 CA-05.4). O corte da Rota A vem do arquivo de parâmetros; o da Rota B é argumento, e a data acima é só exemplo.
 
 - **CA-01.1** — *Quando* `evaluate` executa com sucesso, *então* o relatório é impresso e gravado em arquivo, com o veredito na primeira seção.
 - **CA-01.2** — *Dado* que faltam dados para a janela pedida, *quando* qualquer comando executa, *então* falha com mensagem acionável e código de saída diferente de zero.
@@ -473,7 +474,7 @@ Valores aprovados com esta spec, exceto onde a coluna indica outra coisa. Depois
 | Rota A — janela de seleção | 2026-07-01 a 2026-08-31 (UTC), 62 dias | Aprovação |
 | Rota A — corte T | 2026-09-01 00:00 UTC | Aprovação |
 | Rota A — janela de avaliação | 2026-09-01 a 2026-09-30 (UTC), 30 dias | Aprovação |
-| Rota B — janela de seleção | Os 62 dias anteriores ao congelamento | Aprovação |
+| Rota B — janela de seleção | Os 62 dias que terminam no corte da Rota B, uma meia-noite UTC anterior ao congelamento | Aprovação |
 | Rota B — janela de avaliação | 30 dias a partir da primeira meia-noite UTC após a publicação do congelamento | Aprovação |
 | Rota B — cobertura mínima do livro | 95% do tempo por ativo. Abaixo disso, a janela se estende até completar 30 dias de cobertura, no máximo por 15 dias; além disso, a rota é inconclusiva | Aprovação |
 | Semana ao vivo | Os primeiros 7 dias de cobertura efetiva da janela de avaliação da Rota B, com extensão máxima de 3 dias | Aprovação |
@@ -486,7 +487,8 @@ Valores aprovados com esta spec, exceto onde a coluna indica outra coisa. Depois
 | K (carteiras na coorte) | `min(5, ⌊capital / 50⌋)`, com mínimo de 1. Cada subconta tem pelo menos US$ 50, cinco vezes a ordem mínima | Aprovação |
 | Capital (simulado) | Primário US$ 50, com K = 1. Grade: 50 / 100 / 500, com K = 1 / 2 / 5 | Aprovação |
 | Δ | Primário 5 s; grade 1 / 5 / 30 s | Aprovação |
-| Slippage (Rota A) | Primário, por ativo: o maior entre 2 bps e a mediana do meio-spread medido pelo coletor em ao menos 3 dias, medido uma vez e congelado antes da primeira seleção. Sensibilidade: zero e o dobro do primário | Aprovação da emenda 1.1 |
+| Grade de cenários | Os nove pares de capital e Δ, com o slippage primário. A sensibilidade de slippage roda só no capital e no Δ primários. A variante só compras roda em todos | Aprovação da versão 1.3 |
+| Slippage (Rota A) | Primário, por ativo: o maior entre 2 bps e a mediana do meio-spread medido pelo coletor em ao menos 3 dias, medido uma vez por ativo e congelado antes da seleção que o usa. Sensibilidade: zero e o dobro do primário | Aprovação da emenda 1.1 |
 | Taxa taker | 4,5 bps | Aprovação |
 | Teto de alavancagem | 1,0 | Aprovação |
 | Exposição no pico | 1,0 | Aprovação |
@@ -551,6 +553,7 @@ Nenhuma. Q1 a Q5 foram fechadas como D10 a D16. Q6 (universo) e Q7 (pool de cand
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.3 | 2026-10-07 | **Proposta.** Resposta à leitura cruzada do design. Guarda de ingestão vira critério e passa a valer também para dados de mercado (RF-SEL-05 CA-05.4, RF-CLI-01). Segunda exceção do teto: ativo sem preço no instante (RF-SIM-02 CA-02.7). Redução pelo teto mínima e proporcional (RF-SIM-02 CA-02.2). Instantes futuros permitidos ao laço, conteúdos não (RF-SIM-01 CA-01.3). Custo medido uma vez por ativo, e BTC sempre medido (RF-COL-05 CA-05.2, RF-SEL-08 CA-08.5, §7.2). Publicação da Rota B pelo instante do commit (RF-SEL-05 CA-05.3). Janela de seleção da Rota B termina no corte (§7.2). Composição da grade (§7.2). Default do limite de peso em 1.000 (RF-ING-07 CA-07.1). Acertos de redação no glossário e em RF-SIM-03 CA-03.3 |
 | 1.2 | 2026-10-06 | **Proposta.** Fecha a emenda 1.1 com o resultado de RF-VER-05 e com o que o design encontrou. Tolerância de PnL de 1 para 10 bps (RF-ING-04 CA-04.2, D20). Condição de nível no proxy (RF-ING-06 CA-06.3). Funding associado à hora por arredondamento (RF-ING-05 CA-05.1). N\* só sobre o tempo em posição, porque sobre o tempo total um líder que fica pouco tempo posicionado teria referência zero (RF-SEL-03 CA-03.1, ADR-0007). Parâmetros de custo congelados antes da seleção (RF-SEL-01 CA-01.4, RF-SEL-05 CA-05.1, RF-SEL-08 CA-08.1 e CA-08.5, RF-COL-05 CA-05.2). Ordens em outros ativos só para reduzir (RF-SIM-02 CA-02.2 e CA-02.4). Diagnóstico das quebras (RF-ING-03 CA-03.4). Livro-razão do líder na cobertura (RNF-02). Sem serviço de banco (RNF-06, ADR-0006). Precisões que o design exigiu: evento do líder como o conjunto de fills do mesmo milissegundo (glossário); teto conferido nas ordens que aumentam exposição, com a exceção da ordem mínima (RF-SIM-02 CA-02.7); execução atrasada processada no instante efetivo e teste de mutação enunciado pelo relógio da execução (RF-SIM-01 CA-01.2 e CA-01.5, ADR-0008); universo contado sobre candidatas com coleta completa (RF-SEL-08 CA-08.1); dado congelado não reescrito (RF-ING-08 CA-08.2); conferência de PnL só em episódios abertos e fechados na janela (RF-ING-04 CA-04.2); meio-spread ponderado pelo tempo (RF-COL-05 CA-05.2); F8 sobre perpétuos; desvio-padrão amostral (RF-ANA-01 CA-01.1); capital parado quando a coorte é menor que K (RF-SIM-07 CA-07.1); semente do pool (§7.2); comandos da CLI (RF-CLI-01) |
 | 1.1 | 2026-10-06 | **Emenda proposta**, resultado da verificação de dados. (1) Sem teto de 10.000 fills: RF-ING-02 CA-02.1 e CA-02.3, F3, premissa 14. (2) Tolerância de PnL: RF-ING-04 CA-04.2, D20. (3) Quebras de continuidade: RF-ING-03 CA-03.2 e CA-03.3, RF-SIM-02 CA-02.8, RF-VER-05 CA-05.1. (4) Universo por regra, no lugar da lista fixa: RF-SEL-08, D7, D21, RF-COL-05 CA-05.2, RF-ANA-01 CA-01.4. (5) Pool de candidatas: RF-SEL-07, D17, RF-SEL-02 CA-02.1. (6) Cadência do livro: RF-COL-01 CA-01.1, RF-SIM-03 CA-03.2, D19. (7) Regra de lacuna: RF-COL-02 CA-02.2. (8) Classes de fill: RF-ING-02 CA-02.4 e CA-02.5, F10. (9) Agregação: D18. (10) Proxy: RF-ING-06 CA-06.3 e CA-06.4, RF-COL-05. Acrescentada RF-VER-05. Q6 e Q7 abertas e fechadas na mesma emenda |
 | 1.0 | 2026-10-05 | **Aprovada.** Estrutura em três marcos: Rota A, semana ao vivo com gate do piloto (RF-ANA-08, ADR-0005) e veredito de 30 dias. Capital primário de US$ 50 (D11), teto real de US$ 50 (D13). Q1 a Q4 fechadas como D11 a D16. Verificação de dados declarada como única área anterior ao design (§4.1). Acrescentados RF-SEL-06 CA-06.3, RF-SIM-03 CA-03.4 e RF-ANA-05 CA-05.4 |
