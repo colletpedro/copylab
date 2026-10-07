@@ -38,6 +38,7 @@ from copylab.timeutil import Ms, hour_floor
 
 __all__ = [
     "CHANNELS",
+    "CLOSE_TIMEOUT_S",
     "PING_INTERVAL_S",
     "WS_URL",
     "Recorder",
@@ -54,6 +55,10 @@ WS_URL: Final = "wss://api.hyperliquid.xyz/ws"
 #: A corretora fecha a conexão depois de 60 s sem mensagem do cliente. Um ping a cada
 #: 20 s deixa duas tentativas de folga antes desse prazo.
 PING_INTERVAL_S: Final = 20.0
+#: Espera máxima pelo fechamento educado de uma conexão. O padrão do `websockets` é 10 s:
+#: numa reconexão, essa espera viraria lacuna, e a corretora nem sempre responde ao pedido
+#: de fechamento. Medido no primeiro teste do roteiro (docs/coletor.md): 10 s por parada.
+CLOSE_TIMEOUT_S: Final = 1.0
 #: Canal da corretora -> canal gravado. Só o livro na assinatura rápida é gravado.
 CHANNELS: Final = {"bbo": "bbo", "l2Book": "book", "trades": "trades"}
 
@@ -166,7 +171,9 @@ async def _session(
     loop = asyncio.get_running_loop()
     received = False
     try:
-        async with connect(config.url, ping_interval=None, max_size=None) as ws:
+        async with connect(
+            config.url, ping_interval=None, max_size=None, close_timeout=CLOSE_TIMEOUT_S
+        ) as ws:
             recorder.event(conn_ms, "connect", url=config.url)
             for sub in subscriptions(config.coins):
                 await ws.send(json.dumps({"method": "subscribe", "subscription": sub}))
