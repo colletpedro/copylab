@@ -10,6 +10,9 @@ em 2026-10-07 e restaurada, uma mutação por vez:
   leitura estrita levantou `DataError`. O teste falhou.
 - `open_writer` com `"ab"` no lugar de `"xb"` e o instante de abertura fixo: o segundo
   processo acrescentou ao segmento do primeiro, e a contagem de segmentos falhou.
+
+`test_rename_is_retried_while_another_process_holds_the_file`: `_rename` sem nova
+tentativa (`if True: raise`) fez o teste falhar.
 """
 
 import gzip
@@ -178,3 +181,34 @@ def test_disk_bytes_counts_open_and_closed_segments(tmp_path: Path) -> None:
     expected = sum(ref.path.stat().st_size for ref in store.segments(include_open=True))
     assert store.disk_bytes() == expected > 0
     writer.close()
+
+
+@pytest.mark.unit
+def test_rename_is_retried_while_another_process_holds_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No Windows, renomear falha enquanto outro processo (o status, o antivírus) segura o
+    arquivo. Com uma espera, o fechamento tenta de novo; sem ela, o erro sobe."""
+    import os
+
+    real_replace = os.replace
+    failures = [2]
+
+    def busy(src: Path, dst: Path) -> None:
+        if failures[0] > 0:
+            failures[0] -= 1
+            raise PermissionError("arquivo em uso por outro processo")
+        real_replace(src, dst)
+
+    monkeypatch.setattr("copylab.storage.segments.os.replace", busy)
+    waits: list[float] = []
+    writer = SegmentStore(tmp_path, wait=waits.append).open_writer("BTC", "bbo", HOUR, HOUR)
+    writer.append(rec(HOUR, HOUR, b"x"))
+    ref = writer.close()
+    assert ref.path.is_file()
+    assert waits == [0.1, 0.1]
+
+    failures[0] = 1
+    plain = SegmentStore(tmp_path / "sem-espera").open_writer("BTC", "bbo", HOUR, HOUR)
+    with pytest.raises(PermissionError):
+        plain.close()

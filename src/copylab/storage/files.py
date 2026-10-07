@@ -24,6 +24,7 @@ congelada é permitido (design §3.2, "Janela congelada").
 import json
 import os
 import re
+import sys
 import tempfile
 from collections import Counter
 from collections.abc import Sequence
@@ -307,6 +308,8 @@ class ParquetStore:
         except BaseException:
             Path(temporary).unlink(missing_ok=True)
             raise
+        if sys.platform == "win32":
+            return  # o Windows não abre pasta como arquivo; o NTFS registra a troca de nome
         directory = os.open(path.parent, os.O_RDONLY)
         try:
             os.fsync(directory)

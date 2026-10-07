@@ -18,6 +18,9 @@ Prova de dente de `test_disconnect_reconnects_and_records_gap_per_asset`: `run` 
 mesmo identificador de conexão depois de reconectar fez o teste falhar (sem lacuna de
 desconexão), junto com `test_recorder_reconnects_with_backoff_and_records_each_disconnect`.
 
+Prova de dente de `test_cancelled_recorder_closes_segments_and_records_stop`: `run` sem
+registrar a parada no cancelamento fez o teste falhar.
+
 Prova de dente de `test_recorder_reconnects_with_backoff_and_records_each_disconnect`:
 `run` sem o laço de reconexão (`break` depois da primeira desconexão) fez o teste falhar,
 com uma conexão só, e também os testes de silêncio e de recuo.
@@ -311,6 +314,40 @@ def test_silent_connection_is_dropped_and_reopened(tmp_path: Path) -> None:
     assert len(reasons) == 1
     assert "sem mensagem" in reasons[0]
     assert raws(store, "BTC", "bbo") == [BBO_BTC]
+
+
+@pytest.mark.unit
+def test_cancelled_recorder_closes_segments_and_records_stop(tmp_path: Path) -> None:
+    """No Windows, Ctrl+C chega como cancelamento do laço. Os segmentos fecham do mesmo
+    jeito, e a parada fica registrada."""
+
+    async def script(ws: ServerConnection, number: int) -> None:
+        await _wait_subscribed(ws, exchange, 3)
+        await ws.send(BBO_BTC.decode())
+        exchange.done.set()
+        await ws.wait_closed()
+
+    async def scenario() -> None:
+        async with serve(exchange.handler, "127.0.0.1", 0) as server:
+            port = next(iter(server.sockets)).getsockname()[1]
+            config = RecorderConfig(f"ws://127.0.0.1:{port}", ("BTC",), 0.05, 5.0, 0.01, 0.04)
+            task = asyncio.create_task(
+                run(config, Recorder(store, ("BTC",), clock.now), clock.now, asyncio.Event())
+            )
+            await asyncio.wait_for(exchange.done.wait(), timeout=10)
+            await asyncio.sleep(0.2)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+    exchange = FakeExchange(script)
+    store = SegmentStore(tmp_path)
+    asyncio.run(scenario())
+
+    assert all(ref.closed for ref in store.segments(include_open=True))
+    assert raws(store, "BTC", "bbo") == [BBO_BTC]
+    assert [e["event"] for e in events(store)] == ["connect", "stop"]
+    assert events(store)[-1]["reason"] == "cancelado"
 
 
 @pytest.mark.unit

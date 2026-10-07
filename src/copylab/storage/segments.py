@@ -23,14 +23,20 @@ membro íntegro (:meth:`SegmentStore.recover`), e o resto é descartado.
 **Eventos.** Conexões, desconexões e as mensagens da corretora que não são de um ativo
 (resposta de assinatura, ``pong``, erro) vão para a família ``_events``, no mesmo
 formato, para que nenhuma mensagem recebida fique sem registro.
+
+**Windows** (a máquina do coletor, D10). A trava usa ``msvcrt`` no lugar de ``fcntl``; a
+pasta não é sincronizada depois da troca de nome, porque o Windows não abre pasta como
+arquivo (o NTFS registra a troca no próprio journal); e a troca de nome é retentada por
+até 2 s quando outro processo está com o arquivo aberto naquele instante (o status lendo
+o segmento, o antivírus, o indexador), se quem abriu o armazenamento deu uma espera.
 """
 
-import fcntl
 import gzip
 import os
 import re
+import sys
 import zlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,6 +49,25 @@ from copylab.timeutil import Ms
 
 __all__ = ["EVENTS", "Record", "SegmentRef", "SegmentStore", "SegmentWriter"]
 
+if sys.platform == "win32":
+    import msvcrt
+
+    def _try_lock(fd: int) -> None:
+        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+
+    def _unlock(fd: int) -> None:
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+else:
+    import fcntl
+
+    def _try_lock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
 log = get_logger(__name__)
 
 #: Ativo e canal da família de eventos da conexão.
@@ -51,7 +76,12 @@ EVENTS: Final = ("_events", "events")
 _SUFFIX: Final = ".jsonl.gz"
 _OPEN: Final = ".open"
 _NAME: Final = re.compile(r"(?P<hour>-?\d+)\.(?P<opened>-?\d+)\.jsonl\.gz(?P<open>\.open)?")
-_PART: Final = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_@:-]*")
+_PART: Final = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_@-]*")
+#: Tentativas e espera da troca de nome quando outro processo segura o arquivo (Windows).
+_RENAME_ATTEMPTS: Final = 20
+_RENAME_WAIT_S: Final = 0.1
+
+Wait = Callable[[float], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,6 +166,8 @@ def _members(data: bytes, where: Path, tolerant: bool) -> tuple[list[bytes], int
 
 
 def _fsync_dir(directory: Path) -> None:
+    if sys.platform == "win32":
+        return  # o Windows não abre pasta como arquivo; o NTFS registra a troca de nome
     handle = os.open(directory, os.O_RDONLY)
     try:
         os.fsync(handle)
@@ -143,13 +175,27 @@ def _fsync_dir(directory: Path) -> None:
         os.close(handle)
 
 
+def _rename(source: Path, target: Path, wait: Wait | None) -> None:
+    """Troca de nome atômica, retentada enquanto outro processo segura o arquivo."""
+    for attempt in range(_RENAME_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if wait is None or attempt == _RENAME_ATTEMPTS - 1:
+                raise
+            log.warning("collector.segment_rename_retry", segment=str(target), attempt=attempt + 1)
+            wait(_RENAME_WAIT_S)
+
+
 class SegmentWriter:
     """Escreve um segmento aberto. Só o :class:`SegmentStore` cria um."""
 
-    def __init__(self, ref: SegmentRef, closed_path: Path) -> None:
+    def __init__(self, ref: SegmentRef, closed_path: Path, wait: Wait | None = None) -> None:
         ref.path.parent.mkdir(parents=True, exist_ok=True)
         self.ref = ref
         self._closed_path = closed_path
+        self._wait = wait
         self._file = ref.path.open("xb")
         self._pending: list[bytes] = []
         self.records = 0
@@ -171,7 +217,7 @@ class SegmentWriter:
         """Descarrega, fecha e renomeia para o nome de segmento fechado."""
         self.flush()
         self._file.close()
-        os.replace(self.ref.path, self._closed_path)
+        _rename(self.ref.path, self._closed_path, self._wait)
         _fsync_dir(self._closed_path.parent)
         return SegmentRef(
             self.ref.coin,
@@ -186,20 +232,22 @@ class SegmentWriter:
 class SegmentStore:
     """Os segmentos brutos sob o diretório de dados."""
 
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, wait: Wait | None = None) -> None:
+        """``wait`` é a espera entre tentativas de troca de nome; sem ela, não há nova tentativa."""
         if data_dir.exists() and not data_dir.is_dir():
             raise ConfigError(f"O diretório de dados {data_dir} existe e não é um diretório.")
+        self._wait = wait
         self._root = data_dir / "collector" / "segments"
         self._lock_path = data_dir / "collector" / "recorder.lock"
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "SegmentStore":
+    def from_settings(cls, settings: Settings, wait: Wait | None = None) -> "SegmentStore":
         if settings.data_dir is None:
             raise ConfigError(
                 "COPYLAB_DATA_DIR não está definido. Aponte-o para o diretório de dados, "
                 "fora do git (ver .env.example)."
             )
-        return cls(settings.data_dir)
+        return cls(settings.data_dir, wait)
 
     def _paths(self, coin: str, channel: str, hour_ms: Ms, opened_ms: Ms) -> tuple[Path, Path]:
         folder = self._root / _check_part("Ativo", coin) / _check_part("Canal", channel)
@@ -212,7 +260,7 @@ class SegmentStore:
         if closed_path.exists():
             raise DataError(f"Segmento {closed_path} já existe.")
         ref = SegmentRef(coin, channel, hour_ms, opened_ms, False, open_path)
-        return SegmentWriter(ref, closed_path)
+        return SegmentWriter(ref, closed_path, self._wait)
 
     def segments(self, *, include_open: bool = False) -> list[SegmentRef]:
         """Segmentos em disco, em ordem de ativo, canal, hora e abertura."""
@@ -264,7 +312,7 @@ class SegmentStore:
                 ref.path.unlink()
             else:
                 os.truncate(ref.path, valid)
-                os.replace(ref.path, closed_path)
+                _rename(ref.path, closed_path, self._wait)
                 _fsync_dir(closed_path.parent)
                 recovered.append(
                     SegmentRef(ref.coin, ref.channel, ref.hour_ms, ref.opened_ms, True, closed_path)
@@ -295,13 +343,15 @@ class SegmentStore:
         """
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
         with self._lock_path.open("a+") as handle:
+            handle.seek(0)  # no Windows a trava é de um byte, a partir da posição atual
             try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as exc:
+                _try_lock(handle.fileno())
+            except OSError as exc:
                 raise ConfigError(
                     f"Outro gravador já está rodando sobre {self._lock_path.parent}."
                 ) from exc
             try:
                 yield
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                handle.seek(0)
+                _unlock(handle.fileno())

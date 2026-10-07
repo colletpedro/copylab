@@ -217,6 +217,7 @@ async def run(
     """
     flusher = asyncio.create_task(_flush_every(recorder, config.flush_s, stop))
     backoff = config.backoff_initial_s
+    conn_ms = now()
     try:
         while not stop.is_set():
             conn_ms = now()
@@ -231,6 +232,10 @@ async def run(
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(stop.wait(), timeout=backoff)
             backoff = min(backoff * 2, config.backoff_max_s)
+    except asyncio.CancelledError:
+        # No Windows, Ctrl+C chega como cancelamento do laço, e não como sinal.
+        recorder.event(conn_ms, "stop", reason="cancelado")
+        raise
     finally:
         stop.set()
         await flusher

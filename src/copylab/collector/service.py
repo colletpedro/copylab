@@ -1,11 +1,18 @@
-"""Processo do coletor: trava, recuperação, laço assíncrono e sinais de parada.
+"""Processo do coletor: trava, recuperação, laço assíncrono e parada.
 
 A CLI chama :func:`collect`. O laço assíncrono mora aqui porque ``asyncio`` só é
 permitido no coletor (design §2.1).
+
+Parada: em macOS e Linux, ``SIGINT`` e ``SIGTERM`` param o gravador com calma. No Windows
+(a máquina do coletor), o laço do asyncio não aceita tratador de sinal; ``Ctrl+C`` chega
+como cancelamento, e o gravador fecha os segmentos do mesmo jeito. Encerrar a tarefa pelo
+Agendador mata o processo: perde-se o que não tinha sido descarregado, e o segmento aberto
+é fechado até o último bloco íntegro na próxima subida.
 """
 
 import asyncio
 import signal
+import sys
 
 from copylab import clock
 from copylab.collector.recorder import Recorder, RecorderConfig, run
@@ -20,8 +27,9 @@ log = get_logger(__name__)
 async def _main(config: RecorderConfig, segments: SegmentStore, duration_s: float | None) -> None:
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, stop.set)
+    if sys.platform != "win32":
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, stop.set)
     if duration_s is not None:
         loop.call_later(duration_s, stop.set)
     recorder = Recorder(segments, config.coins, clock.now)
@@ -45,5 +53,8 @@ def collect(
             recovered_segments=len(recovered),
             url=config.url,
         )
-        asyncio.run(_main(config, segments, duration_s))
+        try:
+            asyncio.run(_main(config, segments, duration_s))
+        except KeyboardInterrupt:
+            log.info("collector.interrupted")
         log.info("collector.stopped")

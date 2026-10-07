@@ -119,7 +119,7 @@ def collect(
         backoff_initial_s=settings.collector_backoff_initial_seconds,
         backoff_max_s=settings.collector_backoff_max_seconds,
     )
-    run_collector(config, SegmentStore.from_settings(settings), duration_seconds)
+    run_collector(config, SegmentStore.from_settings(settings, wait=clock.sleep), duration_seconds)
 
 
 @collect_app.command("compact")
