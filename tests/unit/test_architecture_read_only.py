@@ -20,8 +20,8 @@ Prova de dente (CLAUDE.md §3), feita à mão em 2026-10-05 sobre a árvore real
 um arquivo `src/copylab/sim/_dente.py` foi criado, o teste rodado, e o arquivo
 removido. Resultado:
 
-- `import web3`: `test_source_tree_has_no_order_or_signing_imports` falhou, com
-  `sim/_dente.py:1` na mensagem.
+- `import web3`: o teste da árvore real falhou, com `sim/_dente.py:1` na
+  mensagem.
 - `from eth_account import Account`: falhou da mesma forma.
 - `import eth_keys.datatypes`: falhou da mesma forma.
 - `from hyperliquid.exchange import Exchange`: falhou da mesma forma.
@@ -46,6 +46,17 @@ subpasta nova) derrubaram `test_scripts_tree_has_no_order_or_signing_imports`;
 `test_scripts_scan_covers_every_expected_script` e/ou
 `test_scripts_scan_covers_every_python_file_on_disk`.
 
+Em 2026-10-07 (T-001), o teste da árvore real foi renomeado de
+`test_source_tree_has_no_order_or_signing_imports` para
+`test_architecture_no_order_or_signing_imports`, o nome do ADR-0001, e
+`leader` entrou em `EXPECTED_SUBPACKAGES`. Prova de dente refeita com o nome
+novo, à mão e restaurada: `src/copylab/leader/_dente.py` com `import web3`,
+`from eth_account import Account`, `from hyperliquid import exchange` e
+`from hyperliquid.info import Info` fez o teste falhar apontando as linhas 1, 2
+e 3, e só elas. Renomear o subpacote `leader` derrubou
+`test_scan_covers_every_expected_subpackage` e
+`test_scan_covers_every_module_the_interpreter_can_find`.
+
 Limite conhecido: import dinâmico com argumento que não é literal (`import_module(nome)`
 com `nome` calculado) não é decidível por AST e passa. O projeto não tem motivo
 para importar dinamicamente, e uma revisão que o introduza deve ser lida com isso
@@ -66,12 +77,13 @@ import copylab
 #: Módulos proibidos. Um módulo é proibido ele mesmo e tudo abaixo dele.
 FORBIDDEN_MODULES: Final = ("hyperliquid.exchange", "eth_account", "eth_keys", "web3")
 
-#: Subpacotes que a Fase 0 declara. Lista escrita à mão de propósito: remover um
-#: deles exige editar este teste e, portanto, ser notado numa revisão.
+#: Subpacotes que o design declara (§2.1). Lista escrita à mão de propósito: remover
+#: um deles exige editar este teste e, portanto, ser notado numa revisão.
 EXPECTED_SUBPACKAGES: Final = (
     "ingestion",
     "collector",
     "storage",
+    "leader",
     "selection",
     "sim",
     "analytics",
@@ -247,7 +259,7 @@ def test_scan_tree_reaches_nested_subpackages(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_source_tree_has_no_order_or_signing_imports() -> None:
+def test_architecture_no_order_or_signing_imports() -> None:
     violations = scan_tree(SRC_ROOT)
     report = "\n".join(
         f"  {path.relative_to(SRC_ROOT)}:{line} importa {module}"
