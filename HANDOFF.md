@@ -787,3 +787,131 @@ minutos depois, passou sem nenhuma mudança. Foi do lado do servidor.
 
 Responder as perguntas de §5, em especial a 1, e então o Bloco A (coletor), para ligar o coletor
 (M-A) o quanto antes.
+
+---
+
+# HANDOFF — Respostas do Bloco 0 e Bloco A, coletor (prompt 07)
+
+**Data:** 2026-10-07
+**Escopo:** Parte 0 (respostas às perguntas do Bloco 0) e Bloco A do plano (T-010 a T-014).
+**Fora do escopo, de propósito:** ingestão, seleção, simulador, `costs measure`, conferência do livro
+contra o proxy. O coletor **não ficou rodando**: quem liga é o Pedro, pelo roteiro.
+
+## 1. Parte 0
+
+| Item | Feito |
+|---|---|
+| 1. Design 1.1 | Copiado; diff com os quatro trechos (§2.2, §3.6, §3.9, histórico) e a linha de versão. `entrega-07/` removida. Índices atualizados |
+| 2. Onde mora cada número | `parametros.toml`, seção `[book_record]`: `max_book_silence_s = 10` e `cost_min_day_coverage_pct = 95.0` (a cobertura em porcentagem, como `route_b.min_book_coverage_pct`; é o 0,95 do prompt). `Settings`: `weight_limit_per_minute` (1.000, recusa acima de 1.200), `disk_budget_gb` (30) e `disk_projection_days` (45). A página de 2.000 fills fica para o provedor (Bloco B) |
+| 3. F6 inclusivo | Comentário no `parametros.toml`; a regra entra no código com T-063 |
+| 4. Exceções da Binance | Lista vazia, comentário com a confirmação |
+| 5. `Phase 1 Tasks.md` | Apagado (não era rastreado) |
+| 6. README | Só a seção de estado, em poucas linhas, com ponteiro para `specs/README.md` |
+| 7. Hash de conteúdo | **0,160 s** para 500 mil linhas com as colunas de `bbo` (melhor de 3; dado sintético com semente). Abaixo de 2 s: **não vetorizei e `numpy` não entrou**. Para referência, 500 mil linhas de `trades`, com dois endereços em texto por linha: 0,434 s |
+
+## 2. Bloco A
+
+| Tarefa | Entrega | Testes com nome do design |
+|---|---|---|
+| T-010 | `storage/segments.py` (segmentos brutos) e `collector/recorder.py` (gravador) | `test_recorder_writes_bbo_and_fast_book_with_both_timestamps_compressed`, `test_restart_neither_duplicates_nor_corrupts_segments` |
+| T-011 | Reconexão com recuo dobrado (1 s até 60 s) e evento por desconexão | `test_disconnect_reconnects_and_records_gap_per_asset` (de ponta a ponta, com a compactação) |
+| T-012 | `collector/compact.py`: `bbo`, `book`, `trades` e `gaps` | `test_gaps_are_recorded_in_exchange_time`, `test_book_silence_over_10s_is_gap_and_trades_silence_is_not`, `test_trades_are_recorded_with_both_addresses_and_timestamps` |
+| T-013 | `collector/status.py` | `test_status_reports_gap_free_fraction_per_asset`, `test_latency_report_gives_median_p95_p99`, `test_status_projects_disk_usage_against_budget` |
+| T-014 | `config/collector_assets.toml` (27 ativos, conferidos contra a tabela de CA-05.4 e a lista do prompt), `collector/assets.py`, `collector/service.py`, comandos `collect`, `collect status`, `collect compact`, `docs/coletor.md` (sem a seção 6) | `test_collector_list_is_the_27_assets_of_the_verification` (BTC na lista, RF-SEL-08 CA-08.5 na parte do coletor) |
+
+Formato e limites conferidos na documentação oficial da Hyperliquid antes do código: assinatura
+`{"method":"subscribe","subscription":{...}}`; `l2Book` com `"fast": true` dá 5 níveis; `users` é
+`[comprador, vendedor]`; ping `{"method":"ping"}`, e a corretora fecha a conexão com 60 s sem mensagem do
+cliente; por IP, 1.000 assinaturas, 10 conexões e 30 conexões novas por minuto.
+
+Cada teste de invariante tem a mutação na docstring. Uma mutação sobreviveu na primeira tentativa (status
+com `live_conn=None`): o cenário só tinha reconexão; entrou o caso de uma conexão que continua viva.
+
+## 3. Decisões que tomei onde o design não decidia — revise
+
+Em ordem decrescente de impacto.
+
+1. **Partição das tabelas do livro pelo dia de recebimento.** O design diz "ativo, dia" sem dizer o
+   relógio. Perguntei três vezes, sem resposta. Segui o texto de §3.4 ("converte os segmentos fechados
+   de um dia nas tabelas"): os segmentos são horas de recebimento, então a partição é o dia deles. Assim a
+   compactação é idempotente e a contagem bate linha a linha. Quem ler pelo instante da corretora (T-080)
+   lê também a partição seguinte e filtra por `time_ms`. **Confirmar.**
+2. **Coluna `conn_ms` nas três tabelas**, além das do design: o instante de abertura da conexão que
+   trouxe a linha. A regra de lacuna precisa saber se houve desconexão entre duas mensagens do livro,
+   inclusive na virada do dia, e depois da compactação a tabela é o único registro. Sem a coluna, a
+   desconexão sumiria com os segmentos.
+3. **Identidade da conexão = instante em que ela abriu**, gravado em cada registro do segmento.
+   Desconexão entre duas mensagens é troca de conexão entre elas, inclusive queda do processo.
+4. **Segmentos em `storage`**, não no coletor: só `storage` conhece o diretório de dados e o formato
+   (ADR-0006, `test_architecture_storage_isolation`). O coletor entrega bytes e instantes. Registro
+   `<recebimento>\t<conexão>\t<tamanho>\t<bytes>\n`, com o tamanho explícito para não depender de a
+   mensagem não ter quebra de linha. Cada descarga é um membro gzip completo, com CRC e `fsync`;
+   "bloco íntegro" é membro que descomprime e confere. Nome `<hora>.<abertura>.jsonl.gz`, com sufixo
+   `.open` em escrita: dois segmentos da mesma hora (reinício no meio dela) nunca colidem.
+5. **Família de eventos** (`_events`): conexões, desconexões, paradas e as mensagens da corretora que não
+   são de um ativo assinado (resposta de assinatura, `pong`, erro), intactas. A compactação não as
+   apaga: são pequenas e são a única memória dos motivos de cada queda.
+6. **Primeira mensagem de cada assinatura**: é a primeira de um ativo e canal trazida por uma conexão.
+   A conexão viva na virada do dia é lida da última linha gravada do dia anterior. **Caso de borda
+   aceito:** se uma conexão aberta segundos antes da meia-noite só trouxe o retrato naquele canal antes
+   dela, a primeira mensagem dela no dia seguinte também é descartada. Perde-se uma mensagem, não se
+   inventa nenhuma.
+7. **Lacuna no fim da gravação.** A lacuna termina na primeira mensagem *mantida* depois dela (o retrato
+   da reconexão é descartado). No status, o silêncio desde a última mensagem do livro, acima do limite,
+   conta como lacuna em curso: com o coletor parado, a cobertura cai, como deve.
+8. **Números de operação novos em `Settings`** (design 1.1 §3.9): descarga a cada 5 s, conexão dada por
+   morta com 30 s sem mensagem, recuo de 1 s a 60 s. O ping a cada 20 s e a espera de 1 s pelo
+   fechamento da conexão são constantes com a fonte no comentário. A espera de 1 s entrou depois do
+   primeiro teste do roteiro: o padrão de 10 s do `websockets` atrasava cada parada em 10 s, e numa
+   reconexão viraria lacuna.
+9. **Um gravador por diretório de dados**, com trava `fcntl`. Compactação só de dias encerrados e sem
+   segmento aberto (um segmento deixado por queda é fechado pelo gravador ao reiniciar).
+10. **Projeção de disco**: bytes de segmentos e tabelas, divididos pelo tempo desde o primeiro evento
+    gravado, vezes o horizonte. Latência por posto mais próximo, sem interpolação.
+11. **Sem job de integração no CI.** O comentário do workflow dizia que ele entraria com o primeiro
+    teste de integração. O único fala com a corretora real; num runner dos EUA, país que a Hyperliquid
+    restringe, deixaria o CI dependente de rede externa. Roda à mão com `make test-integration`, que
+    perdeu a tolerância a "nada coletado" e passou a usar `-s` para mostrar o log.
+12. **Saída dos comandos** pelo structlog, uma linha por ativo, como manda o CLAUDE.md. Erro de
+    configuração ou de dado sai com código 1 e mensagem, sem traceback.
+
+## 4. Verificação
+
+| Critério | Estado |
+|---|---|
+| `make check` | ✅ 348 testes, `ruff` e `mypy --strict` limpos |
+| Integração (60 s de BTC na corretora real) | ✅ rodou duas vezes; a segunda com `-s`, só para ver os números (a primeira passou, mas o log ficou capturado). Mensagens: `bbo` 480, livro 110 (1,8/s, a assinatura rápida), negócios 72 (149 negócios), eventos 7. Nenhuma lacuna. Latência mediana dos negócios: 306 ms |
+| Roteiro seguido do zero | ✅ para as seções que não dependem do sistema: clone limpo, `make install`, `.env`, `collect --duration-seconds 120`, `collect status` (cobertura de 100% nos 27 ativos), `collect` parado por `SIGTERM` mandado ao `uv run` (parada limpa, código 0), `collect compact` (nada a fazer: o dia não fechou). Nenhum processo ficou rodando. ⬜ a seção 6 (manter de pé, suspensão, agendamento) não foi escrita |
+| CI | ver o fim desta seção |
+
+**Disco: risco que o M-A precisa medir.** Dois minutos dos 27 ativos ocuparam 0,94 MB de segmentos gzip,
+o que projeta **28,5 GB em 45 dias**, contra um orçamento de 30 GB. Compactados numa cópia, os mesmos dados
+deram 0,87 MB em Parquet (28,2 GB projetados), mas com 2 minutos por arquivo o custo fixo de cada Parquet
+pesa muito, e a medida não decide nada. O número que vale é o do fim do primeiro dia, com partições do dia
+inteiro, depois da primeira compactação: é a regra do M-A (passou de 30 GB, volta para a arquitetura).
+
+## 5. Em aberto — perguntas para a conversa de arquitetura
+
+1. **Sistema operacional da máquina secundária.** Perguntei quatro vezes nesta sessão, sem resposta. Sem
+   ele, a seção 6 de `docs/coletor.md` não foi escrita, e o coletor não tem como subir sozinho depois de um
+   reinício. Se for **Windows nativo**, o código precisa de adaptação (`fcntl` e sinais POSIX); macOS,
+   Linux e WSL rodam como está.
+2. **Partição pelo dia de recebimento** (§3, item 1): confirmar ou mandar trocar antes do M-A, enquanto não
+   há dado compactado.
+3. **Coluna `conn_ms`** (§3, item 2): o design §3.2 lista as colunas; esta é uma a mais. Vale uma linha no
+   design.
+4. **Janelas congeladas na compactação.** A CLI abre o armazenamento sem janelas congeladas, porque ainda
+   não existe congelamento nem leitor deles (T-066). Quando existir, `collect compact` precisa recebê-las.
+5. **Conferência da cópia por hash** (design §3.4): o roteiro usa `rsync --checksum` até a leitura do
+   livro existir (T-080).
+6. O Bloco A não tem a medida de custo (`costs measure`, T-062), que depende de três dias de gravação.
+
+## 6. O que o Pedro precisa fazer para ligar o coletor
+
+1. Dizer qual é o sistema operacional da máquina secundária, para a seção 6 do roteiro.
+2. Na máquina secundária, seguir `docs/coletor.md` das seções 1 a 5: instalar `git` e `uv`, clonar,
+   `make install`, criar o `.env` com `COPYLAB_DATA_DIR` (caminho absoluto, 30 GB livres) e
+   `COPYLAB_ENV=prod`, rodar o teste de dois minutos e conferir o status.
+3. Com a seção 6 escrita: deixar `uv run copylab collect` subindo sozinho, impedir a suspensão e agendar
+   `uv run copylab collect compact` uma vez por dia, depois de 00:10 UTC.
+4. No fim do primeiro dia, rodar a compactação e o status, e anotar `projected_gb` (M-A).

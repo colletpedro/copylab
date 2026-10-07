@@ -19,9 +19,11 @@ garante isso (RNF-09).
 
 Fase 1 em implementação, pelo plano de tarefas aprovado. O que existe: a base (tempo,
 relógio, protocolo de leitura com corte, armazenamento em Parquet com hash de conteúdo,
-parâmetros pré-registrados em [`preregistro/parametros.toml`](preregistro/parametros.toml))
-e os scripts da verificação de dados. O que ainda não existe: ingestão, livro-razão do
-líder, seleção, simulador, métricas e relatórios. Nenhum resultado foi produzido.
+parâmetros pré-registrados em [`preregistro/parametros.toml`](preregistro/parametros.toml)),
+o coletor do livro e dos negócios (`copylab collect`, roteiro em
+[`docs/coletor.md`](docs/coletor.md)) e os scripts da verificação de dados. O que ainda não
+existe: ingestão, livro-razão do líder, seleção, simulador, métricas e relatórios. Nenhum
+resultado foi produzido.
 
 O estado de cada gate e o roadmap estão em [`specs/README.md`](specs/README.md); onde o
 trabalho está, em [`docs/STATE.md`](docs/STATE.md).

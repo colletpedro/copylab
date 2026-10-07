@@ -10,7 +10,9 @@ O estado dos gates mora em [`specs/README.md`](../specs/README.md). Este arquivo
 **Fase 0 concluída (2026-10-05). Verificação de dados (RF-VER-01 a RF-VER-05) concluída em
 2026-10-06**, com relatório em [`docs/verificacao-de-dados.md`](verificacao-de-dados.md). **Em
 2026-10-07, os requisitos 1.3, o design 1.0, os ADRs 0006 a 0008 e o plano de tarefas 0.1 foram
-aprovados, e o Bloco 0 do plano (T-001 a T-005) foi implementado.** O repositório está publicado em
+aprovados, e o Bloco 0 do plano (T-001 a T-005) foi implementado. Em seguida, o design 1.1
+respondeu as perguntas do Bloco 0, e o Bloco A (coletor, T-010 a T-014) foi implementado e testado
+contra a corretora real, mas ainda não está ligado na máquina secundária (marco M-A).** O repositório está publicado em
 `https://github.com/colletpedro/copylab`.
 Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
@@ -25,14 +27,16 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | Design da Fase 1 | ✅ 1.1 (1.0 aprovado no gate 2, 2026-10-07; 1.1 responde as perguntas do Bloco 0) |
 | Plano de tarefas | ✅ 0.1 aprovado (gate 3, 2026-10-07) |
 | Bloco 0 — base (T-001 a T-005) | ✅ implementado em 2026-10-07; `make check` e CI verdes |
-| Bloco A — coletor (T-010 a T-014) | ⬜ próximo |
+| Bloco A — coletor (T-010 a T-014) | 🟡 código pronto, `make check` e integração verdes; falta a seção do roteiro que depende do sistema operacional da máquina secundária |
+| M-A — coletor ligado | ⬜ aguarda o sistema operacional e o Pedro |
 | Demais blocos (B a H) | ⬜ |
 
 ## Próximo
 
-**Bloco A do plano de tarefas** (T-010 a T-014): o coletor, que precisa entrar em operação o quanto
-antes (M-A). Antes dele, as perguntas abertas do HANDOFF do prompt 06, em especial onde moram os
-limiares que não estão em §7.2 e §7.3 (o de 10 s de lacuna é do coletor).
+**O sistema operacional da máquina secundária**, para completar a seção 6 de
+[`docs/coletor.md`](coletor.md), e então **M-A: o Pedro liga o coletor** pelo roteiro. No fim do
+primeiro dia, `collect status` dá a projeção real de disco; se passar de 30 GB, volta para a conversa
+de arquitetura (risco 9 do design). Em paralelo, o Bloco B (ingestão).
 
 ## O que existe no código
 
@@ -46,8 +50,12 @@ limiares que não estão em §7.2 e §7.3 (o de 10 s de lacuna é do coletor).
   de cada origem chegam com a ingestão e o coletor.
 - `src/copylab/params.py` e `preregistro/parametros.toml` — parâmetros de §7.2 e §7.3 e a regra
   de nomes da Binance, num modelo imutável com hash canônico (T-005).
-- `src/copylab/{ingestion,collector,leader,selection,sim,analytics}/` — vazios, só `__init__.py`
-  com uma docstring que diz qual bloco os preenche. Vazios **de propósito** (CLAUDE.md §1).
+- `src/copylab/collector/` — gravador de WebSocket com reconexão, compactação em `bbo`, `book`,
+  `trades` e `gaps`, status, lista de ativos e o processo (T-010 a T-014). Os segmentos brutos moram
+  em `src/copylab/storage/segments.py`. Comandos `collect`, `collect status` e `collect compact`.
+- `config/collector_assets.toml` — os 27 ativos do coletor. `docs/coletor.md` — roteiro de operação.
+- `src/copylab/{ingestion,leader,selection,sim,analytics}/` — vazios, só `__init__.py` com uma
+  docstring que diz qual bloco os preenche. Vazios **de propósito** (CLAUDE.md §1).
 - `scripts/verify/` — código exploratório da verificação de dados. Fora do `mypy` e da cobertura.
 - `tests/unit/` — fumaça, `config`, `logging`, ferramentas de medição; testes de `timeutil`,
   `clock`, `ports`, `storage` e `params`; os quatro testes de arquitetura do design §2.1
@@ -56,7 +64,8 @@ limiares que não estão em §7.2 e §7.3 (o de 10 s de lacuna é do coletor).
 
 ## Números
 
-- 290 testes unitários, todos offline.
+- 348 testes unitários, todos offline, e 1 de integração (60 s do WebSocket real, fora da suíte
+  default e do CI).
 - Cobertura medida em `leader`, `selection`, `sim` e `analytics`: 0 linhas, porque os quatro
   ainda estão vazios. O 100% reportado continua trivial. `storage`, `ports`, `params` e
   `timeutil` não entram no piso (RNF-02), mas têm testes próprios.
