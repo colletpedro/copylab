@@ -1,9 +1,9 @@
 # Fase 1 (estudo de simulação) — Design técnico
 
 **Status:** em revisão — gate 2 pendente
-**Versão:** 0.1
-**Data:** 2026-10-06
-**Requisitos:** `fase-1-requirements.md`, versão 1.2
+**Versão:** 0.2
+**Data:** 2026-10-07
+**Requisitos:** `fase-1-requirements.md`, versão 1.3
 **Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (não iniciado)
 
 > Este documento diz **como** a fase é construída. O que ela faz está nos requisitos, e as decisões caras de reverter estão nos ADRs 0001 a 0008. Onde este texto e os requisitos divergirem, valem os requisitos, e este texto está errado.
@@ -38,6 +38,7 @@ copylab/
 ├── timeutil.py     # único módulo que converte instante em dia ou hora
 ├── clock.py        # único módulo que lê o relógio da máquina
 ├── params.py       # parâmetros pré-registrados, carregados de arquivo versionado
+├── ports.py        # protocolo de leitura de dados e o repositório limitado pelo corte
 ├── storage/        # diretório de dados, tabelas, leitura e escrita, hash de conteúdo
 ├── ingestion/      # provedor da API, orçamento de peso, paginação, proxy da Binance
 ├── collector/      # gravador de WebSocket, lacunas, compactação, status
@@ -50,9 +51,9 @@ copylab/
 
 As setas apontam para dentro:
 
-- `leader`, `selection`, `sim` e `analytics` são lógica pura. Não importam `ingestion`, `collector`, `clock`, rede nem arquivo. Recebem dados já materializados e devolvem objetos ou texto. A única exceção é `analytics/plot.py`, que grava a imagem no caminho que recebe.
-- Só `storage` conhece o diretório de dados e o formato dos arquivos (ADR-0006). `ingestion` e `collector` entregam tabelas a `storage` e não gravam por conta própria.
-- Só `timeutil` importa `datetime`. Só `clock` lê o relógio da máquina, e só `collector`, `ingestion` e `cli` o importam.
+- `leader`, `selection`, `sim` e `analytics` são lógica pura. Não importam `storage`, `ingestion`, `collector`, `clock`, rede nem arquivo. Leem dados pelo protocolo de `ports`, sem saber de onde vêm, e devolvem objetos, texto ou bytes. O gráfico também: `analytics/plot.py` devolve a imagem em bytes.
+- Só `storage` conhece o diretório de dados e o formato dos arquivos (ADR-0006). `storage` implementa o protocolo de `ports`. `ingestion` e `collector` entregam tabelas a `storage` e não gravam por conta própria.
+- Só `timeutil` importa `datetime`. Só `clock` importa `time`, e só `collector`, `ingestion` e `cli` importam `clock`. `asyncio` é permitido só no coletor.
 - `sim` não conhece rotas: conhece o protocolo `PriceSource`.
 - `cli` monta as peças, e é ela que grava congelamentos e relatórios.
 
@@ -87,11 +88,13 @@ def day_start(day: int) -> Ms: ...
 def hour_floor(t: Ms) -> Ms: ...       # início da hora que contém t
 def second_of(t: Ms) -> int: ...       # segundos inteiros desde a época
 def iso(t: Ms) -> str: ...             # só para log e relatório
+def parse_utc_date(text: str) -> Ms: ...   # "2026-09-01" vira a meia-noite UTC desse dia
+def from_date(d: date) -> Ms: ...      # para as datas que o TOML entrega
 ```
 
 Todo timestamp cruza o sistema como `Ms`. A API já entrega milissegundos. Nos arquivos da Binance, a ingestão confere a ordem de grandeza do timestamp na borda e falha se ele não for milissegundo. Janelas são semiabertas, `[início, fim)`, em todo lugar.
 
-`clock.now() -> Ms` é a única leitura do relógio da máquina. Serve para carimbar o que entra: instante de recebimento no coletor, instante de coleta na ingestão, instante de publicação na CLI. Nenhum cálculo depende dele.
+`clock` tem três funções: `now() -> Ms`, `monotonic() -> float` e `sleep(segundos)`. São a única leitura do relógio da máquina. Servem para carimbar o que entra, no coletor e na ingestão, e para o orçamento de peso esperar. Nenhum cálculo de seleção, simulação ou métrica depende delas.
 
 ### 3.2 Armazenamento (`copylab.storage`)
 
@@ -134,17 +137,17 @@ class BoundedRepository:
     def __init__(self, inner: Repository, cutoff: Ms) -> None: ...
 ```
 
-O protocolo é só de leitura. A escrita fica numa interface separada, `Writer`, que só `ingestion`, `collector` e a CLI recebem.
+O protocolo é só de leitura. `Repository` e `BoundedRepository` moram em `copylab.ports`, e `storage` os implementa. A escrita fica numa interface separada, `Writer`, que só `ingestion`, `collector` e a CLI recebem.
 
 A seleção só recebe um `BoundedRepository`. É isso que prova RF-SEL-01 CA-01.1 por construção. Do leaderboard, a tabela derivada não tem colunas de desempenho, e o leitor do corpo bruto não é exposto no protocolo: RF-SEL-01 CA-01.3 também vale por construção. `LookaheadError` entra em `copylab.exceptions`, derivada de `CopylabError`.
 
 **O que fica fora do corte.** O corte vale para fills, cobertura, funding, proxy e livro. Três leituras ficam fora, e as três são declaradas: o leaderboard, os tamanhos de lote e o tipo de conta. Elas são coletadas hoje, depois do corte da Rota A, porque a API não as devolve para uma data passada. Nenhuma traz desempenho. A seleção usa o snapshot mais recente de cada uma, e o instante e o hash dos três vão para o congelamento, de modo que a avaliação use exatamente os mesmos.
 
-**Hash de conteúdo.** Calculado dos valores, em ordem canônica (chave da tabela), com os números lidos como padrões de bits de 64 bits e os textos como UTF-8 com prefixo de tamanho. Zero negativo é normalizado. Não depende da versão da biblioteca nem dos bytes do arquivo. Nos fills, o hash ordena por todas as colunas menos `seq` e não inclui `seq`, para não depender da ordem em que a API devolve os fills de um mesmo milissegundo.
+**Hash de conteúdo.** Calculado dos valores, em ordem canônica (chave da tabela), com os números lidos como padrões de bits de 64 bits e os textos como UTF-8 com prefixo de tamanho. Zero negativo é normalizado. Não depende da versão da biblioteca nem dos bytes do arquivo. Nos fills, a ordem canônica é a de `time_ms` e `seq`, e `seq` entra no hash, porque a posição e o preço de um evento dependem da ordem dos fills dentro do milissegundo.
 
-**Escrita.** Toda escrita é atômica: arquivo temporário e troca de nome. Reingerir uma janela compara o conteúdo novo com o gravado. Se é igual, nada muda. Se difere, a diferença é logada e gravada em `divergences`, com o valor anterior e o novo, e o conteúdo novo substitui o antigo, o que muda o hash (RF-ING-08 CA-08.2).
+**Escrita.** Toda escrita é atômica: arquivo temporário e troca de nome. Reingerir uma janela compara o conteúdo novo com o gravado, sem olhar `seq`. Se é igual, nada muda, e a ordem gravada fica. Se difere, a diferença é logada e gravada em `divergences`, com o valor anterior e o novo, e o conteúdo novo substitui o antigo, o que muda o hash (RF-ING-08 CA-08.2).
 
-**Janela congelada.** A exceção à regra acima são as linhas com instante dentro de uma janela que algum congelamento cobre. Essas nunca são reescritas: a divergência é logada e gravada, e o dado congelado fica como estava. Sem isso, uma reingestão depois do congelamento tornaria a avaliação impossível para sempre, porque o hash deixaria de bater e o conteúdo original teria sido perdido. Quem diz ao `Writer` quais janelas estão congeladas é a CLI, que as lê dos congelamentos em `preregistro/`. O relatório da avaliação conta as divergências encontradas dentro de janela congelada.
+**Janela congelada.** Um congelamento cobre a janela de seleção e a janela de avaliação da sua rota. A exceção à regra acima são as linhas já gravadas com instante dentro de uma janela coberta. Essas nunca são reescritas: a divergência é logada e gravada, e o dado fica como estava. Gravar pela primeira vez os fills da janela de avaliação é permitido; mudar ou inserir linha num trecho já coletado, não. Sem isso, uma reingestão depois do congelamento tornaria a avaliação impossível para sempre, porque o hash deixaria de bater e o conteúdo original teria sido perdido. Quem diz ao `Writer` quais janelas estão congeladas é a CLI, que as lê dos congelamentos em `preregistro/`. O relatório da avaliação conta as divergências encontradas dentro de janela congelada.
 
 ### 3.3 Ingestão (`copylab.ingestion`)
 
@@ -161,7 +164,7 @@ class WeightBudget:
     def acquire(self, weight: int) -> None: ...   # bloqueia até caber na janela deslizante de 60 s
 ```
 
-O relógio e a espera são injetados, então o orçamento é testável sem tempo real. O limite de trabalho é 1.000 por minuto, abaixo do teto de 1.200, e cada página de fills reserva 120 antes de a resposta chegar.
+O relógio e a espera são injetados, então o orçamento é testável sem tempo real. O limite configurado tem default de 1.000 por minuto, abaixo do teto de 1.200 da corretora (RF-ING-07 CA-07.1), e cada página de fills reserva 120 antes de a resposta chegar.
 
 **Paginação de fills** (RF-ING-02 CA-02.1). A próxima página começa no instante do último fill recebido, inclusive. Os fills desse milissegundo já vistos são descartados por multiconjunto de chaves. Uma página com menos de 2.000 fills encerra a janela. Ao passar de 20.000 fills na janela, a coleta para e a carteira é marcada (CA-02.3).
 
@@ -169,18 +172,20 @@ O relógio e a espera são injetados, então o orçamento é testável sem tempo
 
 **Retomada.** A tabela `coverage` registra, por endereço, o que já foi ingerido. Uma ingestão interrompida recomeça do primeiro endereço sem cobertura. Falha em um endereço é registrada e não aborta os demais (RF-ING-07 CA-07.2).
 
-**Guarda da janela de avaliação.** O comando de ingestão de fills recebe rota e janela, não datas. Ele recusa a janela de avaliação de uma rota enquanto não existir o congelamento dela, e recusa a janela de seleção da Rota B enquanto não existir o congelamento da Rota A, porque essa janela contém setembro. Dados de mercado (proxy, funding) não têm essa restrição, porque não dizem nada sobre carteiras.
+**Guarda da janela de avaliação.** Os comandos de ingestão, de fills e de dados de mercado, recebem rota e janela, não datas. Eles recusam a janela de avaliação de uma rota enquanto não existir o congelamento dela, e recusam a janela de seleção da Rota B enquanto não existir o congelamento da Rota A, porque essa janela contém setembro. Não há exceção para proxy e funding: nada da janela de avaliação é baixado antes do congelamento (RF-SEL-05 CA-05.4).
 
 **Tipo de conta.** Consultado só para as carteiras que passaram nos outros filtros, e gravado em `roles` com o instante da coleta.
 
 **Preço proxy** (RF-ING-06). Para cada ativo e dia: baixa o arquivo de negócios agregados e o `.CHECKSUM`, confere, e reduz a uma linha por segundo com mínimo, máximo, último e contagem. O arquivo bruto é apagado em seguida. O mapa de nomes entre as corretoras (por exemplo `kPEPE` e `1000PEPEUSDT`) fica no arquivo de parâmetros, e a condição de nível de CA-06.3 é o que denuncia um mapa ou uma escala errada.
+
+**Quais ativos recebem proxy.** Os perpétuos do primeiro dex são percorridos em ordem decrescente de notional das candidatas, enquanto tiverem ao menos 2.000 fills. Para cada um, o nome na Binance vem da regra do arquivo de parâmetros: o mesmo nome com `USDT`, o prefixo `k` trocado por `1000`, e as exceções listadas. A condição (i) do universo é conferida baixando: se falta o arquivo de algum dia da janela, o ativo falha nela e é reportado. A busca para quando 20 ativos a cumprem. BTC entra sempre.
 
 ### 3.4 Coletor (`copylab.collector`)
 
 Um processo assíncrono, uma conexão, três assinaturas por ativo (melhor compra e venda, livro rápido e negócios) e um ping periódico. A lista de ativos fica em `config/collector_assets.toml`, versionada. Ela começa com os 27 ativos com equivalente na Binance encontrados na verificação, que incluem BTC, e recebe os ativos candidatos que faltarem quando o pool de uma rota é ingerido.
 
 - **Gravação.** Cada mensagem é gravada como veio, com o instante de recebimento, em segmentos de uma hora por ativo e canal, comprimidos, com descarga periódica. Um segmento em escrita tem sufixo próprio e é renomeado ao fechar. Depois de uma queda, o segmento interrompido é lido até o último bloco íntegro.
-- **Lacunas.** Há um registro por ativo. Desconexão abre uma lacuna para todos os ativos, e a primeira mensagem do livro rápido depois da reconexão a fecha. Mais de 10 s sem livro rápido de um ativo também abre lacuna. Negócios e melhor compra e venda não entram na regra.
+- **Lacunas.** Há um registro por ativo, no relógio da corretora, que é o relógio em que o simulador as consulta. Uma lacuna vai do instante da última mensagem do livro rápido antes dela ao instante da primeira depois. Há lacuna em dois casos: uma desconexão detectada entre as duas mensagens, ou mais de 10 s entre elas. Negócios e melhor compra e venda não entram na regra.
 - **Compactação.** Uma etapa separada converte os segmentos fechados de um dia nas tabelas `bbo`, `book` e `trades`, confere as contagens contra os segmentos e só então os apaga. A partir daí a tabela compactada é o registro. A primeira mensagem de cada assinatura é um retrato do passado e é descartada.
 - **Status.** Lê o registro de lacunas e os arquivos, sem falar com o processo: cobertura por ativo, latência de recebimento e projeção de disco para 45 dias.
 
@@ -251,15 +256,15 @@ def check_freeze(freeze: Freeze, repo: Repository, params: Params) -> None: ... 
 
 **Ordem dentro de `select`.** Pool, ativos candidatos, conferência do proxy, universo, fatos por carteira, filtros F2 a F10, tipo de conta das sobreviventes, F1, N\*, contagem de elegíveis, ranking, coortes de controle, congelamento.
 
-- **Pool** (RF-SEL-07). Endereços que passam em F2, ordenados, embaralhados uma vez com a semente. O bloco `n` é a fatia `[3000·n, 3000·(n+1))` dessa ordem, o que torna a ampliação determinística. Com menos de 20 elegíveis e o bloco seguinte ainda não ingerido, `select` para com código de saída diferente de zero e diz qual bloco ingerir. A cada ampliação, universo e filtros são refeitos sobre o pool inteiro.
+- **Pool** (RF-SEL-07). Endereços que passam em F2, postos na ordem do SHA-256 do texto `semente:pool:endereço`. O bloco `n` é a fatia `[3000·n, 3000·(n+1))` dessa ordem, o que torna a ampliação determinística. Com menos de 20 elegíveis e o bloco seguinte ainda não ingerido, `select` para com código de saída diferente de zero e diz qual bloco ingerir. A cada ampliação, universo e filtros são refeitos sobre o pool inteiro.
 - **Ativos candidatos.** Contam só as carteiras do pool com cobertura `ok`. Carteira marcada "frequência incompatível" tem histórico parcial e não entra na soma.
 - **Conferência do proxy** (RF-ING-06 CA-06.3). Cada fill de perpétuo do primeiro dex é comparado ao último preço do segundo do proxy que contém o instante do fill: `diferença = (preço do fill / último − 1) × 10⁴`. Fill em segundo sem negócio é pulado e contado. A mediana é por dia. O desvio de um fill é o módulo da diferença dele para a mediana do seu dia, e o p95 é tomado sobre todos os fills da janela. O nível é o maior módulo de mediana diária.
 - **Universo** (RF-SEL-08). `form_universe` aplica as cinco condições e registra, para cada ativo, a condição que o excluiu.
 - **Filtros** (RF-SEL-02). `wallet_facts` calcula uma vez tudo o que os filtros precisam. Cada filtro é uma função pura de `WalletFacts` e `Params`. F1 depende do tipo de conta, que a CLI manda coletar só para as carteiras que passaram em F2 a F10, e entra numa segunda passada.
 - **N\*** (RF-SEL-03, ADR-0007). A exposição bruta é uma função em degraus entre eventos. Contam só os degraus com exposição positiva. N\* é o menor valor de exposição tal que o tempo passado nele ou abaixo dele é pelo menos 95% do tempo em posição, sem interpolação. Antes do primeiro fill de um ativo na janela, a posição é o `start_position` desse fill, avaliada ao preço dele.
 - **Ranking** (RF-SEL-04). Simula cada elegível na janela de seleção, no cenário primário, com subconta de capital primário, sobre o `BoundedRepository`, com o preço proxy nas duas rotas, porque o livro gravado não cobre a janela de seleção de nenhuma delas. Ordena por Sharpe diário, com Sharpe indefinido no fim, descarta retorno não positivo e desempata por endereço.
-- **Aleatoriedade.** Uma semente só, a de §7.2, com um fluxo separado por rótulo (`pool`, `controle`), para que mudar o número de coortes de controle não mude o sorteio do pool.
-- **Congelamento** (RF-SEL-05). `dump_freeze` produz um texto JSON com chaves ordenadas, para que o mesmo conteúdo gere os mesmos bytes, e a CLI o grava em `preregistro/`. Contém todos os elegíveis, com N\*, Sharpe e retorno na janela de seleção, e não só a coorte, porque as coortes por capital são prefixos do ranking e as coortes de controle saem da lista de elegíveis. Contém também o instante e o hash dos snapshots de leaderboard, lotes e tipo de conta.
+- **Aleatoriedade.** Uma semente só, a de §7.2, e nenhum gerador de números aleatórios de biblioteca. A coorte de controle de número `i`, para um dado K, são os K primeiros elegíveis na ordem do SHA-256 de `semente:controle:K:i:endereço`. O sorteio não muda com a versão de nenhuma biblioteca e pode ser conferido à mão.
+- **Congelamento** (RF-SEL-05). `dump_freeze` produz um texto JSON com chaves ordenadas, para que o mesmo conteúdo gere os mesmos bytes, e a CLI o grava em `preregistro/`. Contém todos os elegíveis, com N\*, Sharpe e retorno na janela de seleção, e não só a coorte, porque as coortes por capital são prefixos do ranking e as coortes de controle saem da lista de elegíveis. Contém também o instante e o hash dos snapshots de leaderboard, lotes e tipo de conta. A lista completa de campos: rota, corte, as duas janelas, versão do código, hash dos parâmetros, valores de custo usados, universo com a condição de cada ativo, blocos do pool usados, funil, elegíveis, coorte por capital, semente e número das coortes de controle, e instante e hash de cada conjunto de dados lido. A versão do código é o commit do git, que a CLI informa, e `select` se recusa a rodar com alteração não commitada em `src/` ou em `preregistro/`.
 
 **Definição operacional dos filtros.** Os limiares estão em §7.3 dos requisitos. O que segue fixa como cada um é medido.
 
@@ -317,7 +322,7 @@ def run_subaccount(
 
 **Visão do líder.** O motor não reconstrói o estado do líder a partir de todos os eventos até um instante. Ele o atualiza a cada execução processada, com o evento dela (ADR-0008). Um evento cuja execução ainda espera preço não entra na visão. Sem atraso de preço, a visão é igual aos eventos até `t`.
 
-**Instantes, sim; conteúdos, não.** O laço precisa saber quando acordar. `LeaderTape.next_wake(depois)` e `PriceSource.available_from` devolvem só instantes futuros: quando há um próximo evento e quando há uma próxima observação. Nenhum dos dois devolve preço, lado ou tamanho. O teste de mutação de CA-01.2 altera também esses instantes depois do corte, e as ordens decididas antes dele não podem mudar.
+**Instantes, sim; conteúdos, não** (RF-SIM-01 CA-01.3). O laço precisa saber quando acordar. `LeaderTape.next_wake(depois)` e `PriceSource.available_from` devolvem só instantes futuros: quando há um próximo evento e quando há uma próxima observação. Nenhum dos dois devolve preço, lado ou tamanho. O teste de mutação de CA-01.2 altera também esses instantes depois do corte, e as ordens decididas antes dele não podem mudar.
 
 **Leitura de preço além de `τ`.** A fonte de preço pode consumir uma observação posterior a `τ` em dois casos previstos no ADR-0003: a observação seguinte do livro, na Rota B, e o resto do segundo de execução, na Rota A. `horizon()` devolve a observação mais avançada já consumida, e é dela em diante que o teste de mutação altera os preços.
 
@@ -341,12 +346,19 @@ def decomposition(run: Callable[[Frictions], PortfolioResult], primary: Friction
 def effective_window(start: Ms, days: int, max_extension_days: int, min_coverage: float, gaps: Mapping[str, Sequence[Gap]]) -> Window | None: ...
 def verdict(portfolio: PortfolioResult | None, benchmark: SubaccountResult, route: Route, window: Window | None) -> Verdict: ...
 def pilot_gate(route_a: Verdict, week_book: PortfolioResult | None, week_proxy: PortfolioResult | None, week: Window | None, params: Params) -> Gate: ...
+def render_plot(...) -> bytes: ...                                        # imagem PNG em memória
 def render_selection_report(...) -> str: ...
 def render_evaluation_report(...) -> str: ...
 def render_gate_report(...) -> str: ...
 ```
 
 - **Carteira.** Como as subcontas são independentes, o patrimônio da carteira é a soma, dia a dia, mais o capital parado quando a coorte é menor que K (RF-SIM-07 CA-07.1).
+- **Episódio copiado.** Episódio da própria subconta: a posição dela em um ativo sai de zero e volta a zero. Os que estão abertos no fim da janela são contados à parte e não entram na taxa de acerto.
+- **Taxa de acerto.** Fração dos episódios copiados fechados cujo resultado líquido, depois de taxas e funding, é positivo.
+- **Giro.** Soma do notional executado na janela, dividida pela média dos patrimônios diários.
+- **Não cópia** (RF-ANA-04). Para cada evento do líder, a fração não copiada é `1 − tamanho executado / tamanho que o alvo pediria sem teto, mínimo nem profundidade`, limitada entre 0 e 1. O notional não copiado é o notional do evento vezes essa fração, e o motivo é a primeira restrição que cortou a ordem.
+- **Excesso sobre o teto** (RF-SIM-02 CA-02.7). Número de execuções que terminaram com exposição acima de `teto × patrimônio` e o maior excesso, em dólares e em fração do patrimônio.
+- **Grade** (RF-SIM-08). Onze cenários na Rota A: os nove pares de capital e Δ com o slippage primário, mais slippage zero e slippage em dobro no capital e no Δ primários. Nove na Rota B, que não tem slippage. A variante só compras roda em todos.
 - **Benchmark.** Uma subconta sintética: compra de BTC a 1x no primeiro instante da janela mais o atraso do cenário, pela mesma fonte de preço, com a mesma taxa e o mesmo funding, marcada no fim. O tamanho sai da mesma regra de teto de §4.3, com lote.
 - **Decomposição.** Seis execuções, cada uma com um `Frictions` que liga um fator a mais. O primeiro degrau tem atraso zero e tudo desligado. Na Rota B o degrau do slippage não muda nada, e o relatório diz por quê.
 - **Coortes de controle.** Cada elegível é simulado uma vez por cenário e por capital de subconta. O resultado de uma coorte é a soma das subcontas dos seus membros, então mil coortes não custam mil simulações.
@@ -354,7 +366,7 @@ def render_gate_report(...) -> str: ...
 - **Veredito.** Três resultados possíveis: critério atingido, critério não atingido e rota inconclusiva. O terceiro só existe na Rota B, quando a cobertura não fecha dentro da extensão.
 - **Janela efetiva e gate.** Ver §4.4.
 
-Os relatórios são texto em Markdown, e a CLI os grava.
+Os relatórios são texto em Markdown, e a CLI os grava. Junto com o relatório de avaliação, ela grava `preregistro/resultado-<rota>.json`, com o veredito, as métricas do cenário primário, a versão do código e os hashes dos dados. É esse arquivo que o gate lê para a condição (i).
 
 | Relatório | Conteúdo |
 |---|---|
@@ -368,18 +380,18 @@ O texto da seção de vieses é uma constante, e um teste confere que ela está 
 
 `preregistro/parametros.toml` contém tudo o que §7.2 e §7.3 dos requisitos listam, mais o mapa de nomes entre as corretoras. `params.py` o carrega num modelo imutável e expõe o hash dos valores carregados, em forma canônica. Nenhum limiar aparece como literal no código. O teste que prova isso é de comportamento: para cada limiar, uma carteira sintética na fronteira muda de lado quando o valor no arquivo muda.
 
-`preregistro/custos.json` contém o meio-spread mediano por ativo (RF-COL-05 CA-05.2). A medida é esta: nos 3 primeiros dias UTC completos, a contar do início do coletor, em que a cobertura do ativo foi de ao menos 95%, cada observação de melhor compra e venda tem meio-spread `(venda − compra) / (2 × ponto médio)`, em bps, e peso igual ao tempo até a observação seguinte, sem contar tempo dentro de lacuna. O valor gravado é a mediana ponderada. O arquivo guarda, por ativo, o valor, o intervalo usado e o hash dos dados. O comando que o gera se recusa a sobrescrevê-lo.
+`preregistro/custos.json` contém o meio-spread mediano por ativo (RF-COL-05 CA-05.2). A medida é esta: nos 3 primeiros dias UTC completos, a contar do primeiro dia em que o ativo foi gravado, em que a cobertura dele foi de ao menos 95%, cada observação de melhor compra e venda tem meio-spread `(venda − compra) / (2 × ponto médio)`, em bps, e peso igual ao tempo até a observação seguinte, sem contar tempo dentro de lacuna. O valor gravado é a mediana ponderada. O arquivo guarda, por ativo, o valor, o intervalo usado e o hash dos dados. Cada ativo é medido uma vez: o comando acrescenta os ativos que ainda não estão no arquivo e nunca altera um valor já gravado. BTC é sempre medido. Cada congelamento copia os valores que usou.
 
 | Comando | O que faz |
 |---|---|
 | `copylab ingest leaderboard` | Grava um snapshot do leaderboard e um dos lotes |
 | `copylab ingest fills --route A --window selection` | Fills do pool, com retomada. A janela de avaliação só depois do congelamento |
-| `copylab ingest market --from --to` | Funding e proxy dos ativos candidatos e de BTC |
+| `copylab ingest market --route A --window selection` | Funding e proxy dos ativos candidatos e de BTC. A janela de avaliação só depois do congelamento |
 | `copylab collect` / `collect status` / `collect compact` | Coletor |
-| `copylab costs measure` | Grava `custos.json`, uma vez |
+| `copylab costs measure` | Mede os ativos que ainda não estão em `custos.json` |
 | `copylab select --route A` | Universo, filtros, ranking, congelamento. Na Rota B, com `--cutoff` |
 | `copylab window open --freeze <arquivo>` | Registra a publicação do congelamento da Rota B |
-| `copylab evaluate --freeze <arquivo>` | Simula a janela de avaliação e escreve o relatório |
+| `copylab evaluate --freeze <arquivo>` | Simula a janela de avaliação e escreve o relatório e o arquivo de resultado |
 | `copylab gate --freeze <arquivo>` | Computa o gate do piloto, uma vez |
 
 ---
@@ -390,12 +402,12 @@ O texto da seção de vieses é uma constante, e um teste confere que ela está 
 
 1. O coletor entra em operação com a lista provisória.
 2. Snapshot do leaderboard e dos lotes, sorteio do pool e ingestão dos fills da janela de seleção da Rota A.
-3. Ingestão de funding e proxy dos ativos candidatos. A lista do coletor recebe os candidatos que ainda não estavam nela.
-4. Com ao menos 3 dias de coletor para todos esses ativos, `costs measure`, uma única vez.
+3. Ingestão de funding e proxy dos ativos candidatos, só da janela de seleção. A lista do coletor recebe os candidatos que ainda não estavam nela.
+4. Com ao menos 3 dias de coletor para todos esses ativos, `costs measure`.
 5. `select --route A`: universo, filtros, N\*, ranking, congelamento. Commit do congelamento.
-6. Ingestão dos fills da janela de avaliação da Rota A, para os elegíveis. `evaluate`. Relatório de triagem.
-7. Snapshot novo, pool novo e ingestão da janela de seleção da Rota B. O corte da Rota B é uma meia-noite UTC para a qual o arquivo da Binance do dia anterior já foi publicado, o que costuma levar um dia, e a janela de seleção são os 62 dias que terminam nele. `select --route B --cutoff`. O coletor passa a gravar o universo da Rota B.
-8. Commit e `push` do congelamento da Rota B. `window open`.
+6. Ingestão da janela de avaliação da Rota A: fills dos elegíveis, funding e proxy. `evaluate`. Relatório de triagem e arquivo de resultado.
+7. Snapshot novo, pool novo e ingestão da janela de seleção da Rota B. O corte da Rota B é uma meia-noite UTC para a qual o arquivo da Binance do dia anterior já foi publicado, o que costuma levar um dia, e a janela de seleção são os 62 dias que terminam nele. Ativo candidato que ainda não estava no coletor entra nele e espera 3 dias de gravação para ser medido por `costs measure`. `select --route B --cutoff`. O coletor passa a gravar o universo da Rota B.
+8. Commit e `push` do congelamento da Rota B, e `window open`, tudo antes da meia-noite UTC seguinte.
 9. A cada dia da janela da Rota B, ingestão incremental dos fills dos elegíveis e compactação do coletor.
 10. Completa a semana ao vivo, `gate`. Completos os 30 dias, `evaluate`.
 
@@ -412,7 +424,7 @@ O laço de uma subconta percorre, em ordem de instante, quatro tipos de ocorrên
 | 3 | Amostra diária de patrimônio | meia-noite UTC |
 | 4 | Fim da janela | parâmetro |
 
-A ordem dentro do mesmo instante é fixa e faz parte do contrato. Funding antes da execução, porque o funding incide sobre a posição que existia durante a hora. Amostra depois, porque o patrimônio do dia é o do fim do dia. Execuções no mesmo instante seguem a ordem do instante do evento que as originou e, no empate, a alfabética do ativo.
+A ordem dentro do mesmo instante é fixa e faz parte do contrato. Funding antes da execução, porque o funding incide sobre a posição que existia durante a hora. Amostra depois, porque o patrimônio do dia é o do fim do dia. O funding do instante `H` usa o registro com `hour_ms = H` e incide sobre as posições abertas em `H`. No teste de mutação, um funding é posterior a um instante quando o `hour_ms` dele é. Execuções no mesmo instante seguem a ordem do instante do evento que as originou e, no empate, a alfabética do ativo.
 
 A janela é semiaberta. Nenhuma ocorrência com instante igual ou posterior ao fim acontece: no fim, a subconta só é marcada. O funding da hora que coincide com o fim fica de fora, para a carteira e para o benchmark.
 
@@ -427,22 +439,22 @@ Cada evento do líder gera uma execução (ADR-0008). Para um evento em `c` no i
 3. **Razões.** Para cada ativo rastreado `j`, com a posição e o preço do último fill que estão na visão: `r_j = posição_j × preço_j / N*`.
 4. **Fator do teto.** `g = pico × Σ|r_j|` e `f = min(1, teto / g)`.
 5. **Alvos.** `alvo_j = pico × f × r_j × P₀`, em dólares, com sinal. A soma dos módulos nunca passa de `teto × P₀`.
-6. **Reduções exigidas pelo teto.** A exposição projetada é a soma das posições atuais dos demais ativos, à marcação, mais o módulo de `alvo_c`. Se ela passa de `teto × P₀`, cada ativo `j ≠ c` cuja posição atual, à marcação, excede em módulo o seu alvo recebe uma ordem de redução até `alvo_j` dividido pela cotação do lado que reduz. A ordem é a alfabética. O gatilho é a exposição real da subconta, e não o fator `f`: uma posição que cresceu porque o preço andou também dispara a redução. Se a fonte de preço não tem observação de `j` em `τ`, a redução não é enviada e é contada, e o passo 8 impede aumentos enquanto o excesso durar.
+6. **Reduções exigidas pelo teto.** A exposição projetada é a soma das posições atuais dos demais ativos, à marcação, mais o módulo de `alvo_c`. Se ela passa de `teto × P₀`, a diferença é o excesso `E`. Cada ativo `j ≠ c` cuja posição atual, à marcação, excede em módulo o seu alvo tem uma sobra `s_j`, e `S` é a soma das sobras. Alvo de sinal contrário ao da posição conta como zero. Cada um desses ativos recebe uma redução de `s_j × E / S` dólares, convertida em tamanho pela cotação do lado que reduz. É o mínimo que devolve a carteira ao teto, repartido em proporção: `E` nunca passa de `S`, e uma redução nunca cruza o zero. A ordem é a alfabética. O gatilho é a exposição real da subconta, e não o fator `f`: uma posição que cresceu porque o preço andou também dispara a redução. Se a fonte de preço não tem observação de `j` em `τ`, a redução não é enviada e é contada, e o passo 8 impede aumentos enquanto o excesso durar.
 7. **Ordem em `c`.** O lado sai da comparação entre `alvo_c` e a posição atual à marcação. Com a cotação desse lado, o tamanho-alvo é `alvo_c / cotação`. Se a diferença para o tamanho atual não tem o sinal do lado, não há ordem. A ordem tem uma parte que reduz a posição atual e, se o alvo vai além dela ou cruza o zero, uma parte que aumenta. Quando cruza o zero, são duas ordens no mesmo instante: o fechamento e a abertura.
-8. **Limite da parte que aumenta.** Ela é o maior múltiplo do lote, até o tamanho pedido, para o qual o estado depois da ordem satisfaz `exposição bruta ≤ teto × patrimônio`, com `c` ao preço médio da ordem, os demais ativos à marcação e a taxa da ordem já descontada. Com um nível só de preço, isso equivale a `X ≤ (teto × P − O) / (1 + teto × taxa)`, em que `X` é o notional adicional, e `P` e `O` são o patrimônio e a exposição bruta depois das reduções, com `c` à cotação. O que não coube conta como "teto atingido".
+8. **Limite da parte que aumenta.** Ela é o maior múltiplo do lote, até o tamanho pedido, para o qual o estado depois da ordem satisfaz `exposição bruta ≤ teto × patrimônio`, com a posição inteira em `c`, a que já existia e a nova, avaliada ao preço médio da ordem, tanto no patrimônio quanto na exposição, os demais ativos à marcação e a taxa da ordem já descontada. Com um nível só de preço, isso equivale a `X ≤ (teto × P − O) / (1 + teto × taxa)`, em que `X` é o notional adicional, e `P` e `O` são o patrimônio e a exposição bruta depois das reduções, com `c` à cotação. O que não coube conta como "teto atingido".
 9. **Lote e mínimo.** O tamanho de cada ordem é arredondado para baixo, em módulo, ao lote. Se o notional à cotação fica abaixo do mínimo e a ordem não zera a posição, ela não é enviada e entra no contador. Não existe fila de ordens: o alvo é recalculado do zero na próxima execução daquele líder naquele ativo, e é assim que a diferença persiste.
 10. **Execução.** Primeiro as reduções do passo 6, depois a parte que reduz em `c`, depois a que aumenta. Cada ordem percorre a escada até o tamanho pedido ou o fim dos níveis. Ordens no mesmo instante e no mesmo ativo consomem a mesma escada em sequência: cada uma continua de onde a anterior parou. O que sobra por falta de nível conta como "profundidade excedida". O preço da ordem é o médio ponderado dos níveis usados. Taxa sobre o notional executado. Atualiza posição, custo médio, PnL realizado e saldo.
 11. **Registro.** Cada ordem guarda o instante do evento que a originou, o instante nominal, o instante da execução, ativo, lado, tamanho pedido e executado, preço, taxa e motivo.
 
 Sem restrições de tamanho, que é o caso dos cinco primeiros degraus da decomposição, `f = 1` e os passos 6, 8 e 9 não se aplicam. A escada continua valendo, porque ela é o modelo de preço.
 
-O teto é garantido onde o seguidor age: nenhuma ordem que aumenta a exposição passa dele, e a conta já desconta a taxa. Onde ele pode ficar violado depois de um evento é no caso que a errata do ADR-0002 descreve, em que a redução necessária cai abaixo da ordem mínima. Esse excesso é contado, e o passo 8 impede qualquer aumento enquanto ele durar.
+O teto é garantido onde o seguidor age: nenhuma ordem que aumenta a exposição passa dele, e a conta já desconta a taxa. Onde ele pode ficar violado depois de um evento é nos dois casos que as erratas do ADR-0002 descrevem: a redução necessária cai abaixo da ordem mínima, ou o ativo a reduzir não tem preço naquele instante. Esse excesso é contado, e o passo 8 impede qualquer aumento enquanto ele durar.
 
 ### 4.4 A janela da Rota B
 
 A janela de avaliação da Rota B não é escolhida por ninguém: é função de um instante registrado e das lacunas gravadas.
 
-1. **Publicação.** Depois do `push` do congelamento, `copylab window open` confere pelo git que o arquivo está no remoto e grava `preregistro/rota-b-publicacao.json`, com o instante e o hash do congelamento. O arquivo é versionado, e o comando se recusa a sobrescrevê-lo.
+1. **Publicação.** O instante de publicação é o do commit do congelamento, lido do git, e não o momento em que alguém roda um comando. Depois do `push`, `copylab window open` confere que esse commit está no remoto e grava `preregistro/rota-b-publicacao.json`, com o hash do congelamento, o commit e o instante dele. O comando se recusa a rodar a partir da primeira meia-noite UTC posterior ao commit. Assim, rodar mais tarde não desloca a janela, e quem perde o prazo precisa de um congelamento novo. O arquivo é versionado e nunca é sobrescrito.
 2. **Início.** A primeira meia-noite UTC posterior à publicação em que o coletor está gravando todos os ativos do universo e BTC (RF-SEL-05 CA-05.3, RF-SEL-08 CA-08.4). "Gravando" é: fora de lacuna naquele instante.
 3. **Fim.** `effective_window(início, dias, extensão, cobertura mínima, lacunas)`. Se, ao fim dos `dias`, todo ativo tem cobertura de ao menos 95%, a janela termina ali. Senão, termina na primeira meia-noite UTC, dentro da extensão máxima, em que todo ativo acumulou `dias` inteiros de tempo sem lacuna. Se nenhuma serve, o resultado é ausente e a janela é inconclusiva. Para a semana ao vivo, 7 dias e extensão de 3. Para o veredito, 30 dias e extensão de 15.
 4. **Gate.** `gate` calcula a semana por essa função. Se os dados ainda não alcançam o fim da semana, o comando sai sem gravar nada e diz quanto falta. Se a semana é inconclusiva, grava `preregistro/gate.json` com esse resultado, que conta como não atingido. Nos demais casos, simula a semana com o livro e com o proxy e grava o resultado. Depois de gravado, o comando se recusa a rodar de novo.
@@ -483,7 +495,7 @@ Decisões locais, baratas de reverter. As caras estão nos ADRs.
 | 1 | Um evento por líder, ativo e milissegundo | Um evento por fill | Uma ordem dividida em centenas de fills geraria centenas de decisões idênticas |
 | 2 | O alvo é calculado no instante da execução, com a visão do líder naquele instante | Calcular na decisão e guardar | O patrimônio e a cotação só existem em `τ` |
 | 3 | O notional do líder usa o preço do último fill dele | Preço de mercado em `τ` | É a mesma régua de N\*, e depende só dos fills |
-| 4 | Numa execução em `c`, os outros ativos só recebem redução exigida pelo teto | Rebalancear todos a cada evento | Evita giro causado por deriva de preço, que a ordem mínima tornaria errático |
+| 4 | Numa execução em `c`, os outros ativos só recebem a redução mínima que o teto exige, repartida em proporção | Rebalancear todos a cada evento, ou reduzir cada um até o alvo | Evita giro causado por deriva de preço, que a ordem mínima tornaria errático |
 | 5 | A redução pelo teto dispara pela exposição real da subconta | Disparar só quando o fator `f` é menor que 1 | O fator vem do líder. Uma posição do seguidor que cresceu por variação de preço ficaria acima do teto sem que nada a reduzisse |
 | 6 | Dimensionar pela cotação do lado, já com slippage e com a taxa descontada | Dimensionar pela marcação | Garante o teto aos preços de execução e contra o patrimônio depois da ordem |
 | 7 | Ordens no mesmo instante e ativo consomem a mesma escada em sequência | Cada ordem vê a escada inteira | Depois de uma lacuna, várias ordens executam no mesmo instante. Sem isso a profundidade seria contada várias vezes |
@@ -502,6 +514,12 @@ Decisões locais, baratas de reverter. As caras estão nos ADRs.
 | 20 | Livro lido pelo instante da corretora | Pelo instante de recebimento | É o mesmo relógio dos fills do líder. A latência de recebimento já está dentro de Δ |
 | 21 | Janela da Rota B como função da publicação e das lacunas | Datas informadas à mão | Num estudo pré-registrado, o início e a extensão não podem ser escolha de quem roda |
 | 22 | Parâmetros em TOML, lido pela biblioteca padrão | YAML | Sem dependência nova. Em YAML, um nome de ativo como `ON` ou `NO` viraria booleano sem aviso |
+| 23 | Sorteios por ordenação de SHA-256, sem gerador de biblioteca | `random` ou `numpy` com semente | O resultado não muda com a versão da biblioteca e se confere à mão |
+| 24 | Nenhum dado da janela de avaliação é baixado antes do congelamento, nem proxy nem funding | Isentar dados de mercado, que não falam de carteiras | A regra fica sem exceção para explicar. O custo é baixar setembro depois, o que leva minutos |
+| 25 | Lacunas registradas no relógio da corretora | No relógio de recebimento | É o relógio em que o simulador pergunta se há preço |
+| 26 | A publicação da Rota B é o instante do commit, com prazo para registrar | O instante em que o comando é rodado | Rodar o comando um dia depois deslocaria a janela, e isso seria uma escolha |
+| 27 | `seq` entra no hash dos fills | Hash sem a ordem da API | O preço e a posição de um evento dependem da ordem dos fills no milissegundo. Dois conjuntos com o mesmo hash precisam dar o mesmo resultado |
+| 28 | `evaluate` grava um arquivo de resultado além do relatório | O gate ler o relatório em texto | O gate precisa do veredito da Rota A num formato que se confere por hash |
 
 ---
 
@@ -532,7 +550,7 @@ Decisões locais, baratas de reverter. As caras estão nos ADRs.
 | A seleção não lê nada a partir do corte (RF-SEL-01) | Só recebe `BoundedRepository` | `test_mutating_evaluation_window_does_not_change_frozen_cohort`; `test_selection_reading_at_or_after_cutoff_raises` |
 | A seleção não lê desempenho do leaderboard | A tabela derivada não tem essas colunas | `test_selection_reading_leaderboard_performance_raises` |
 | A avaliação não roda sem congelamento coerente (RF-SEL-05) | `check_freeze` confere hashes e parâmetros | `test_evaluate_refuses_without_matching_freeze` |
-| Fills de avaliação não são coletados antes do congelamento | Guarda no comando de ingestão | `test_evaluation_ingest_requires_freeze` |
+| Nada da janela de avaliação é coletado antes do congelamento (RF-SEL-05 CA-05.4) | Guarda nos comandos de ingestão | `test_evaluation_ingest_requires_freeze` |
 | Dado congelado não é reescrito (ADR-0006) | A escrita recusa alterar linha dentro de janela congelada | `test_frozen_rows_are_never_rewritten` |
 | Nenhuma ordem que aumenta a exposição passa do teto (ADR-0002 e sua errata) | Passo 8 de §4.3 | `test_gross_exposure_never_exceeds_cap_after_event` |
 | Só compras é o mesmo motor com alvos negativos zerados | Uma marca em `Mirror`, sem segundo caminho de código | `test_long_only_variant_equals_engine_with_shorts_dropped` |
@@ -549,11 +567,13 @@ Decisões locais, baratas de reverter. As caras estão nos ADRs.
 | Pacotes de lógica são puros | `leader`, `selection`, `sim` e `analytics` não importam rede, arquivo nem relógio | `test_architecture_logic_packages_are_pure` |
 | Nenhum limiar fora do arquivo de parâmetros (RF-SEL-02) | `params.py` é a única fonte | `test_thresholds_come_only_from_parameter_file` |
 
+Dois nomes vêm de ADRs aceitos e ficam como estão, embora o enunciado tenha sido refinado: `test_mutating_future_does_not_change_orders_decided_before_cutoff` prova RF-SIM-01 CA-01.2 pelo relógio da execução, e `test_gross_exposure_never_exceeds_cap_after_event` prova o item (i) de RF-SIM-02 CA-02.7. O teste de somente leitura já existe no repositório com outro nome, `test_source_tree_has_no_order_or_signing_imports`, e é renomeado para o do ADR-0001 na primeira tarefa. `LookaheadError` também entra em `copylab.exceptions` na primeira tarefa, e a docstring de `DataError` deixa de citar leitura proibida.
+
 Todo teste de invariante só é aceito depois de provar que tem dente: quebra-se o código de propósito, o teste cai, o código é restaurado, e a mutação fica registrada na docstring.
 
 ### 8.2 Mapa de critérios para testes
 
-Os critérios de RF-VER são verificações sobre dado real, já executadas, e não entram no mapa.
+Os critérios de RF-VER são verificações sobre dado real, já executadas, e não entram no mapa. Três critérios são operacionais e não se provam só por teste: RF-COL-04 CA-04.2, RF-SEL-05 CA-05.3 e RF-SEL-08 CA-08.4. O teste mapeado prova a regra, e o DoD confere o fato.
 
 **Ingestão**
 
@@ -588,7 +608,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | Requisito | Critério | Teste |
 |---|---|---|
 | RF-COL-01 | CA-01.1 | `test_recorder_writes_bbo_and_fast_book_with_both_timestamps_compressed` |
-| RF-COL-02 | CA-02.1 | `test_disconnect_reconnects_and_records_gap_per_asset` |
+| RF-COL-02 | CA-02.1 | `test_disconnect_reconnects_and_records_gap_per_asset`; `test_gaps_are_recorded_in_exchange_time` |
 | RF-COL-02 | CA-02.2 | `test_book_silence_over_10s_is_gap_and_trades_silence_is_not` |
 | RF-COL-02 | CA-02.3 | `test_status_reports_gap_free_fraction_per_asset` |
 | RF-COL-03 | CA-03.1 | `test_trades_are_recorded_with_both_addresses_and_timestamps` |
@@ -596,7 +616,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | RF-COL-04 | CA-04.1 | `test_restart_neither_duplicates_nor_corrupts_segments` |
 | RF-COL-04 | CA-04.2 | `test_status_projects_disk_usage_against_budget` |
 | RF-COL-05 | CA-05.1 | `test_book_vs_proxy_report_gives_median_and_p95_per_asset` |
-| RF-COL-05 | CA-05.2 | `test_half_spread_median_is_written_once_to_cost_parameters`; `test_half_spread_median_is_time_weighted` |
+| RF-COL-05 | CA-05.2 | `test_half_spread_median_is_written_once_to_cost_parameters`; `test_half_spread_median_is_time_weighted`; `test_cost_file_adds_assets_and_never_changes_existing_value` |
 
 **Seleção**
 
@@ -617,7 +637,8 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | RF-SEL-04 | CA-04.4 | `test_cohort_per_capital_is_prefix_of_single_ranking` |
 | RF-SEL-05 | CA-05.1 | `test_freeze_file_contains_all_required_fields` |
 | RF-SEL-05 | CA-05.2 | `test_evaluate_refuses_without_matching_freeze` |
-| RF-SEL-05 | CA-05.3 | `test_route_b_window_starts_first_utc_midnight_after_publication`; `test_route_b_window_is_function_of_publication_and_gaps` |
+| RF-SEL-05 | CA-05.3 | `test_route_b_window_starts_first_utc_midnight_after_publication`; `test_route_b_window_is_function_of_publication_and_gaps`; `test_window_open_refuses_after_first_midnight_following_commit` |
+| RF-SEL-05 | CA-05.4 | `test_evaluation_ingest_requires_freeze`; `test_market_ingest_of_evaluation_window_requires_freeze`; `test_route_b_selection_ingest_requires_route_a_freeze` |
 | RF-SEL-06 | CA-06.1 | `test_control_cohorts_per_distinct_k_without_replacement` |
 | RF-SEL-06 | CA-06.2 | `test_control_cohorts_are_deterministic_for_seed` |
 | RF-SEL-06 | CA-06.3 | `test_control_cohorts_enumerate_all_when_fewer_than_n` |
@@ -640,7 +661,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | RF-SIM-01 | CA-01.4 | `test_event_past_window_end_is_reported_pending` |
 | RF-SIM-01 | CA-01.5 | `test_missing_price_uses_next_observation_and_records_delay`; `test_delayed_execution_is_processed_at_effective_instant`; `test_delayed_order_uses_view_of_processed_events`; `test_round_trip_inside_gap_pays_costs_and_captures_nothing` |
 | RF-SIM-02 | CA-02.1 | `test_target_at_reference_exposure_equals_peak_times_equity`; `test_target_scales_linearly_with_leader_notional` |
-| RF-SIM-02 | CA-02.2 | `test_cap_scales_all_targets_proportionally_reductions_first`; `test_other_assets_only_receive_reductions` |
+| RF-SIM-02 | CA-02.2 | `test_cap_scales_all_targets_proportionally_reductions_first`; `test_other_assets_only_receive_reductions`; `test_cap_reductions_are_minimal_and_proportional` |
 | RF-SIM-02 | CA-02.3 | `test_preexisting_leader_position_is_ignored_until_flat`; `test_tracking_starts_when_leader_position_touches_zero` |
 | RF-SIM-02 | CA-02.4 | `test_below_minimum_order_is_skipped_and_delta_persists`; `test_order_size_is_floored_to_lot` |
 | RF-SIM-02 | CA-02.5 | `test_full_close_executes_below_minimum` |
@@ -662,7 +683,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | RF-SIM-06 | CA-06.4 | `test_subaccount_freezes_at_nonpositive_equity_with_explicit_missing_metrics` |
 | RF-SIM-07 | CA-07.1 | `test_subaccounts_are_independent_with_capital_over_k`; `test_short_cohort_leaves_remaining_capital_idle` |
 | RF-SIM-07 | CA-07.2 | `test_portfolio_equity_is_sum_of_subaccounts` |
-| RF-SIM-08 | CA-08.1 | `test_grid_runs_every_scenario_and_only_primary_feeds_verdict` |
+| RF-SIM-08 | CA-08.1 | `test_grid_runs_every_scenario_and_only_primary_feeds_verdict`; `test_grid_has_eleven_scenarios_in_route_a_and_nine_in_route_b` |
 
 **Analytics**
 
@@ -684,7 +705,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | RF-ANA-05 | CA-05.4 | `test_thirty_day_verdict_ignores_gate_and_pilot` |
 | RF-ANA-06 | CA-06.1 | `test_report_contains_fixed_bias_section` |
 | RF-ANA-07 | CA-07.1 | `test_small_sample_warning_does_not_change_verdict` |
-| RF-ANA-08 | CA-08.1 | `test_pilot_gate_requires_all_four_conditions`; `test_pilot_gate_fails_on_each_single_condition` |
+| RF-ANA-08 | CA-08.1 | `test_pilot_gate_requires_all_four_conditions`; `test_pilot_gate_fails_on_each_single_condition`; `test_gate_reads_route_a_result_file` |
 | RF-ANA-08 | CA-08.2 | `test_live_week_extends_then_fails_on_low_coverage`; `test_gate_waits_until_live_week_is_complete` |
 | RF-ANA-08 | CA-08.3 | `test_pilot_gate_refuses_recomputation` |
 | RF-ANA-08 | CA-08.4 | `test_gate_report_states_consistency_check_and_capital_cap` |
@@ -719,4 +740,5 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 0.2 | 2026-10-07 | Resposta à leitura cruzada do Claude Code. Corrigido: nenhum dado da janela de avaliação é baixado antes do congelamento; `seq` entra no hash dos fills; a publicação da Rota B é o instante do commit; custos medidos uma vez por ativo, e não uma vez só; redução pelo teto mínima e proporcional; protocolo de leitura em `ports`; gráfico devolvido em bytes; lacunas no relógio da corretora. Definido: métricas de RF-ANA-01, composição da grade, campos do congelamento, arquivo de resultado, sorteio por SHA-256, quais ativos recebem proxy |
 | 0.1 | 2026-10-06 | Rascunho inicial, sobre os requisitos 1.2. Já incorpora uma revisão independente, que encontrou dois defeitos (execução atrasada contabilizada no instante nominal, e teto que não disparava redução quando o preço andava) e várias definições que faltavam |
