@@ -1,6 +1,6 @@
 # ADR-0007 — Medir a referência de exposição só sobre o tempo em posição
 
-**Status:** proposto — passa a aceito com a aprovação do design da Fase 1
+**Status:** aceito (2026-10-07, com o gate de design da Fase 1)
 **Data:** 2026-10-06
 **Contexto de decisão:** Fase 1 — seleção (referência de exposição)
 **Refina:** a definição de `N*` na seção Decisão do ADR-0002. Todo o resto do ADR-0002 continua valendo.

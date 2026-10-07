@@ -1,6 +1,6 @@
 # ADR-0006 — Guardar os dados em arquivos Parquet locais, sem servidor de banco
 
-**Status:** proposto — passa a aceito com a aprovação do design da Fase 1
+**Status:** aceito (2026-10-07, com o gate de design da Fase 1)
 **Data:** 2026-10-06
 **Contexto de decisão:** Fase 1 — design (armazenamento)
 

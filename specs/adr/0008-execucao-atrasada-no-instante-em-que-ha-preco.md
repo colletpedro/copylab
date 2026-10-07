@@ -1,6 +1,6 @@
 # ADR-0008 — Executar a ordem atrasada quando há preço, uma por evento, com o que o seguidor já viu
 
-**Status:** proposto — passa a aceito com a aprovação do design da Fase 1
+**Status:** aceito (2026-10-07, com o gate de design da Fase 1)
 **Data:** 2026-10-06
 **Contexto de decisão:** Fase 1 — simulador (execução sem preço em t + Δ)
 **Refina:** o ADR-0003, no caso que ele não cobria. Todo o resto do ADR-0003 continua valendo.
