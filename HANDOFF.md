@@ -451,6 +451,9 @@ dentro do orçamento") é uma aceitação operacional que o teste mapeado, de pr
 
 ### 3.2 Leitura do design contra os requisitos e os ADRs
 
+> **Respondida (2026-10-07).** Cada item desta lista foi decidido na conversa de arquitetura e está
+> respondido pelo design 0.2 e pelos requisitos 1.3 (ver o histórico dos dois documentos e o prompt 05 abaixo).
+
 Em ordem decrescente de impacto, dentro de cada grupo.
 
 **Contradições entre documentos**
@@ -566,3 +569,68 @@ Em ordem decrescente de impacto, dentro de cada grupo.
 ## 5. Próximo passo
 
 Gate de design na conversa de arquitetura. Só depois dele, o plano de tarefas (`fase-1-tasks.md`).
+
+---
+
+# HANDOFF — Revisão do design: requisitos 1.3 e design 0.2 (prompt 05)
+
+**Data:** 2026-10-07
+**Escopo entregue:** os cinco arquivos da entrega nos seus lugares, sem edição; índices e estado; conferência
+mecânica; limpeza da raiz; merge dos três PRs do Dependabot.
+**Escopo deliberadamente não entregue:** qualquer implementação, inclusive as duas que o design 0.2 promete para a
+primeira tarefa (renomear o teste de somente leitura e criar `LookaheadError`); dependência nova; `preregistro/`,
+`config/` ou diretório de dados; mudança de status. O gate de design continua do Pedro.
+
+## 1. O que foi feito
+
+- A entrega estava em `entrega-05/`. Copiei os cinco arquivos e removi a pasta. `git diff --stat` mostrou cinco
+  modificados e nada mais: `CLAUDE.md`, requisitos, design, ADR-0002 e ADR-0006.
+- ADR-0002: **0 linhas removidas**, um bloco acrescentado depois da última linha (`@@ -79,0 +80,6`), sob
+  `## Errata — 2026-10-07`. ADR-0006 (proposto): uma frase do item 7 da Decisão. ADRs 0001, 0003, 0004, 0005, 0007 e
+  0008 sem diff.
+- `specs/README.md` (1.3 proposta, 0.2 em revisão; ADR-0002 com duas erratas), `specs/CHANGELOG.md` (entradas de
+  2026-10-07, resumidas das linhas 1.3 e 0.2 dos históricos) e `docs/STATE.md`.
+- A lista de §3.2 do prompt 04 ficou marcada como respondida.
+- **Limpeza.** `Phase 1 Design.md` e `AGENTS.md` apagados: nenhum dos dois era rastreado, e o Pedro não disse o
+  contrário nesta sessão. Com isso o `make lint` local voltou a passar.
+- **Dependabot.** Merge (squash) de um PR por vez, esperando o CI da `main` depois de cada um. Nenhum entrou em
+  conflito, e o CI passou nos três:
+
+| PR | Mudança | Commit na `main` | CI da `main` |
+|---|---|---|---|
+| #1 | `actions/checkout` 5 → 7 | `5971542` | ✅ |
+| #2 | `astral-sh/setup-uv` 6 → 7 | `d17d9ad` | ✅ |
+| #3 | `actions/upload-artifact` 4 → 7 | `0f6aa47` | ✅ |
+
+## 2. Conferência mecânica
+
+1. **Critérios de RF-ING a RF-CLI no mapa de §8.2:** 113 nos requisitos (entrou RF-SEL-05 CA-05.4), 113 linhas no
+   mapa. Nenhum faltando, nenhum inexistente, nenhuma linha sem teste.
+2. **Nomes de teste dos ADRs 0001 a 0008 em §8:** todos aparecem, escritos igual.
+3. **Nome repetido no mapa para critérios diferentes:** nenhum.
+
+**Fora disso, uma coisa saltou aos olhos (não corrigida).** O design 0.2 (§4.4, decisão 26) toma como instante de
+publicação da Rota B o do commit do congelamento, lido do git. A data de um commit é a do relógio de quem commita
+e pode ser escolhida (`GIT_COMMITTER_DATE`). O prazo de `window open` ("recusa a partir da primeira meia-noite UTC
+posterior") limita o atraso, mas não impede um commit datado para trás. Talvez valha conferir a data do commit
+contra o instante em que `window open` o vê no remoto.
+
+## 3. Verificação
+
+| Critério | Estado |
+|---|---|
+| `make check` local, inclusive `make lint` | ✅ 105 testes, `ruff` e `mypy --strict` limpos |
+| Cinco arquivos sem edição | ✅ copiados com `cp`; ADR-0002 só com acréscimo |
+| CI da `main` depois de cada merge | ✅ nos três |
+
+## 4. Em aberto
+
+1. **O gate de design**: requisitos 1.3, design 0.2 e ADRs 0006 a 0008.
+2. Os pontos herdados dos HANDOFFs anteriores (tolerância ao exit 5 em `make test-integration`, templates com
+   `quantlab`, cobertura trivial). O aviso de Node 20 nas actions deve ter sumido com os três PRs; conferir no
+   próximo CI.
+
+## 5. Próximo passo
+
+Gate de design na conversa de arquitetura. Só depois dele, o plano de tarefas (`fase-1-tasks.md`), cuja primeira
+tarefa renomeia o teste de somente leitura e cria `LookaheadError`.

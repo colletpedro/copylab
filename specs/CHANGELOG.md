@@ -2,6 +2,40 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versionamento por spec, não global.
 
+## 2026-10-07
+
+### fase-1-requirements 1.3 — proposta, aguardando o gate de design
+
+Resposta à leitura cruzada do design. O que muda:
+
+1. **Guarda de ingestão vira critério** e vale também para dados de mercado — RF-SEL-05 CA-05.4 (novo), RF-CLI-01.
+2. **Segunda exceção do teto:** ativo sem preço no instante — RF-SIM-02 CA-02.7.
+3. **Redução pelo teto mínima e proporcional** — RF-SIM-02 CA-02.2.
+4. **Instantes futuros permitidos ao laço, conteúdos não** — RF-SIM-01 CA-01.3.
+5. **Custo medido uma vez por ativo, e BTC sempre medido** — RF-COL-05 CA-05.2, RF-SEL-08 CA-08.5, §7.2.
+6. **Publicação da Rota B pelo instante do commit** — RF-SEL-05 CA-05.3.
+7. **Janela de seleção da Rota B termina no corte** — §7.2.
+8. **Composição da grade** — §7.2.
+9. **Default do limite de peso em 1.000** — RF-ING-07 CA-07.1.
+
+**Redação** — glossário e RF-SIM-03 CA-03.3.
+
+### fase-1-design 0.2 — em revisão
+
+Resposta à leitura cruzada. **Corrigido:** nenhum dado da janela de avaliação é baixado antes do congelamento; `seq` entra no hash dos fills; a publicação da Rota B é o instante do commit; custos medidos uma vez por ativo, e não uma vez só; redução pelo teto mínima e proporcional; protocolo de leitura em `ports`; gráfico devolvido em bytes; lacunas no relógio da corretora. **Definido:** métricas de RF-ANA-01, composição da grade, campos do congelamento, arquivo de resultado, sorteio por SHA-256, quais ativos recebem proxy.
+
+### ADR-0002 — segunda errata
+
+Errata de 2026-10-07 acrescentada ao fim. **O corpo não mudou.** A redução exigida pelo teto também fica sem enviar quando o ativo não tem preço naquele instante, com o mesmo tratamento da que cai abaixo do mínimo; e a redução é a mínima que devolve a carteira ao teto, repartida em proporção ao que cada ativo excede do seu alvo.
+
+### ADR-0006 — proposto, item 7 da Decisão
+
+Livro-razão, seleção, simulador e analytics leem por um protocolo de leitura, sem conhecer arquivo nem diretório, e não gravam nada. O ADR segue proposto.
+
+### CLAUDE.md
+
+Três frases de §2: nada da janela de avaliação é lido nem baixado antes do congelamento, inclusive dado de mercado (ADR-0004); a redução pelo teto de ativo sem preço também é contada (ADR-0002); os pacotes de lógica leem por `copylab.ports` e devolvem objetos, texto ou bytes (ADR-0006).
+
 ## 2026-10-06
 
 ### fase-1-requirements 1.2 — proposta, aguardando o gate de design

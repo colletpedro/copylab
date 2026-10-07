@@ -17,7 +17,7 @@ Cada transição é um gate explícito. Um gate reprovado volta para a etapa ant
 
 | Spec | Versão | Requisitos | Design | Tarefas | Implementada |
 |---|---|---|---|---|---|
-| `00-plataforma/fase-1` | 1.2 | 🟡 1.0 aprovada; **versão 1.2 proposta**, aguardando o gate de design | 🟡 **0.1 em revisão** (`fase-1-design.md`), aguardando o mesmo gate | ⬜ não iniciadas | ⬜ |
+| `00-plataforma/fase-1` | 1.3 | 🟡 1.0 aprovada; **versão 1.3 proposta**, aguardando o gate de design | 🟡 **0.2 em revisão** (`fase-1-design.md`), aguardando o mesmo gate | ⬜ não iniciadas | ⬜ |
 
 ## ADRs
 
@@ -28,7 +28,7 @@ Uma **errata** datada, acrescentada ao fim do ADR, corrige um fato e as consequ�
 | # | Título | Status |
 |---|---|---|
 | 0001 | Usar fills públicos da Hyperliquid como fonte de sinal | aceito, com errata de 2026-10-06 |
-| 0002 | Espelhar a exposição relativa do líder, com teto de alavancagem de 1x | aceito, com errata de 2026-10-06; a definição de `N*` é refinada pelo ADR-0007 |
+| 0002 | Espelhar a exposição relativa do líder, com teto de alavancagem de 1x | aceito, com erratas de 2026-10-06 e 2026-10-07; a definição de `N*` é refinada pelo ADR-0007 |
 | 0003 | Executar o seguidor em t + Δ, ao pior preço observado | aceito, com duas erratas de 2026-10-06; o caso sem preço em t + Δ é refinado pelo ADR-0008 |
 | 0004 | Avaliar em duas rotas: triagem retrospectiva e veredito prospectivo | aceito, com errata de 2026-10-06 |
 | 0005 | Liberar um piloto de US$ 50 pela Rota A e por uma semana de consistência | aceito |
@@ -42,7 +42,7 @@ Uma **errata** datada, acrescentada ao fim do ADR, corrige um fato e as consequ�
 |---|---|---|
 | 0 | Fundação: repositório, CI e convenções herdadas do quantlab | concluída |
 | 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | concluída: RF-VER-01 a RF-VER-05 executadas em 2026-10-06 (`docs/verificacao-de-dados.md`) |
-| 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | aguarda o gate de design: requisitos 1.2 propostos, design 0.1 em revisão e ADRs 0006 a 0008 propostos |
+| 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | aguarda o gate de design: requisitos 1.3 propostos, design 0.2 em revisão e ADRs 0006 a 0008 propostos |
 | 1B | Semana ao vivo: 7 dias de livro gravado e o gate do piloto | depende de 1A |
 | 1C | Veredito do estudo: 30 dias de avaliação prospectiva | depende de 1B |
 | 2 | Piloto com dinheiro real, limitado a US$ 50, com spec própria | bloqueada até o gate do piloto ser atingido |
