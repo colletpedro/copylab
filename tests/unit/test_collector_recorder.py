@@ -14,6 +14,10 @@ feita à mão em 2026-10-07 e restaurada, uma mutação por vez em `copylab.coll
 - `route` mandando `l2Book` para o canal `l2Book` em vez de `book`: o teste falhou, porque
   o segmento de livro não apareceu.
 
+Prova de dente de `test_disconnect_reconnects_and_records_gap_per_asset`: `run` usando o
+mesmo identificador de conexão depois de reconectar fez o teste falhar (sem lacuna de
+desconexão), junto com `test_recorder_reconnects_with_backoff_and_records_each_disconnect`.
+
 Prova de dente de `test_recorder_reconnects_with_backoff_and_records_each_disconnect`:
 `run` sem o laço de reconexão (`break` depois da primeira desconexão) fez o teste falhar,
 com uma conexão só, e também os testes de silêncio e de recuo.
@@ -29,9 +33,11 @@ import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
 from copylab import clock
+from copylab.collector.compact import Compactor
 from copylab.collector.recorder import Recorder, RecorderConfig, route, run, subscriptions
+from copylab.storage import ParquetStore
 from copylab.storage.segments import EVENTS, SegmentStore
-from copylab.timeutil import MS_PER_HOUR, Ms
+from copylab.timeutil import MS_PER_HOUR, Ms, utc_day
 
 BBO_BTC = (
     b'{"channel":"bbo","data":{"coin":"BTC","time":1791261053067,"bbo":'
@@ -243,6 +249,45 @@ def test_recorder_reconnects_with_backoff_and_records_each_disconnect(tmp_path: 
     disconnect = events(store)[1]
     assert "queda simulada" in str(disconnect["reason"])
     assert disconnect["retry_in_s"] == pytest.approx(0.01)
+
+
+def book_message(coin: str, t: int) -> str:
+    return BOOK_BTC.decode().replace('"BTC"', f'"{coin}"').replace("1791261051777", str(t))
+
+
+@pytest.mark.unit
+def test_disconnect_reconnects_and_records_gap_per_asset(tmp_path: Path) -> None:
+    """RF-COL-02 CA-02.1, de ponta a ponta: gravador contra a corretora falsa, e compactação.
+
+    Conexão 1: livro de BTC e ETH em t0 (retrato, descartado) e t0 + 100; a corretora
+    derruba a conexão. Conexão 2: livro dos dois em t0 + 200 (retrato) e t0 + 300.
+    Uma lacuna por ativo, de t0 + 100 a t0 + 300, no relógio da corretora, por desconexão.
+    """
+    t0 = clock.now()
+
+    async def script(ws: ServerConnection, number: int) -> None:
+        await _wait_subscribed(ws, exchange, 6)
+        base = t0 + 200 * number
+        for coin in ("BTC", "ETH"):
+            await ws.send(book_message(coin, base))
+        for coin in ("BTC", "ETH"):
+            await ws.send(book_message(coin, base + 100))
+        if number == 0:
+            await asyncio.sleep(0.1)
+            await ws.close(code=1011, reason="queda simulada")
+            return
+        exchange.done.set()
+        await ws.wait_closed()
+
+    exchange = FakeExchange(script)
+    segments = SegmentStore(tmp_path)
+    asyncio.run(record_against(exchange, segments, ("BTC", "ETH")))
+    tables = ParquetStore(tmp_path)
+    Compactor(segments, tables, max_silence_ms=10_000).compact_day(utc_day(t0))
+
+    assert [e["event"] for e in events(segments)].count("disconnect") == 1
+    for coin in ("BTC", "ETH"):
+        assert tables.read("gaps", (coin,)).rows() == [(t0 + 100, t0 + 300, "disconnect")]
 
 
 @pytest.mark.unit
