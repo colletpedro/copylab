@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from copylab.config import Settings, get_settings
+from copylab.logging import configure_logging
 
 _ENV_PREFIX = "COPYLAB_"
 
@@ -49,3 +50,16 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[pytest.MonkeyPatch]:
 def settings(clean_env: pytest.MonkeyPatch) -> Settings:
     """``Settings`` determinístico: sem env da máquina e sem ler ``.env``."""
     return Settings(_env_file=None)
+
+
+@pytest.fixture(autouse=True)
+def _restore_logging() -> Iterator[None]:
+    """Volta o logging ao padrão depois de cada teste.
+
+    A CLI configura o logging com o stdout do momento. Num teste com `CliRunner`, esse
+    stdout é um buffer que o runner fecha ao terminar, e o teste seguinte que logasse
+    escreveria num arquivo fechado ("Logging error"). Reconfigurar no fim de cada teste
+    liga o logging de novo ao stdout da sessão.
+    """
+    yield
+    configure_logging()

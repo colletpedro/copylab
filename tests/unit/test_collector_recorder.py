@@ -354,19 +354,29 @@ def test_cancelled_recorder_closes_segments_and_records_stop(tmp_path: Path) -> 
 def test_backoff_doubles_up_to_the_cap_while_the_exchange_is_unreachable(
     tmp_path: Path,
 ) -> None:
-    """Sem servidor na porta: 0,01, 0,02, 0,04 e daí em diante 0,04 s entre tentativas."""
+    """A corretora aceita a conexão TCP e a derruba na hora, antes do aperto de mão do
+    WebSocket: 0,01, 0,02, 0,04 e daí em diante 0,04 s entre tentativas.
+
+    Um servidor que derruba, e não uma porta fechada: no Windows, a recusa de conexão leva
+    cerca de 2 s, e o teste mediria o sistema, e não o recuo.
+    """
 
     async def scenario() -> None:
-        async with serve(lambda ws: ws.wait_closed(), "127.0.0.1", 0) as server:
-            port = next(iter(server.sockets)).getsockname()[1]
+        def drop(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            writer.close()
+
+        server = await asyncio.start_server(drop, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
         config = RecorderConfig(f"ws://127.0.0.1:{port}", ("BTC",), 0.05, 5.0, 0.01, 0.04)
         stop = asyncio.Event()
         task = asyncio.create_task(
             run(config, Recorder(store, ("BTC",), clock.now), clock.now, stop)
         )
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.6)
         stop.set()
         await task
+        server.close()
+        await server.wait_closed()
 
     store = SegmentStore(tmp_path)
     asyncio.run(scenario())

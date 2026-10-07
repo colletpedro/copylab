@@ -16,6 +16,8 @@ tentativa (`if True: raise`) fez o teste falhar.
 """
 
 import gzip
+import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -30,6 +32,40 @@ HOUR = Ms(1_791_259_200_000)  # 2026-10-06T04:00:00Z, uma hora cheia
 
 def rec(recv: int, conn: int, raw: bytes) -> Record:
     return Record(Ms(recv), Ms(conn), raw)
+
+
+#: Um processo que grava e morre sem fechar nada, como numa queda de energia. Rodar a
+#: queda num processo à parte é o que a torna real: o sistema fecha os arquivos do morto,
+#: e nenhum objeto deste processo fica segurando o segmento (no Windows, isso impediria a
+#: recuperação de renomeá-lo).
+CRASH = """
+import gzip, os, sys
+from pathlib import Path
+from copylab.storage.segments import Record, SegmentStore
+from copylab.timeutil import Ms
+
+root, hour, mode = Path(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+if mode == "torn":
+    writer = SegmentStore(root).open_writer("SOL", "trades", Ms(hour), Ms(hour + 1))
+    writer.append(Record(Ms(hour + 10), Ms(hour + 1), b"a"))
+    writer.append(Record(Ms(hour + 11), Ms(hour + 1), b"b"))
+    writer.flush()
+    writer.append(Record(Ms(hour + 12), Ms(hour + 1), b"c"))
+    torn = gzip.compress(Record(Ms(hour + 12), Ms(hour + 1), b"c").encode(), mtime=0)[:15]
+    with writer.ref.path.open("ab") as handle:
+        handle.write(torn)
+else:
+    writer = SegmentStore(root).open_writer("BTC", "bbo", Ms(hour), Ms(hour))
+    writer.append(Record(Ms(hour), Ms(hour), b"nunca descarregado"))
+os._exit(1)
+"""
+
+
+def crash(root: Path, mode: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", CRASH, str(root), str(HOUR), mode], capture_output=True, check=False
+    )
+    assert result.returncode == 1, result.stderr.decode()
 
 
 @pytest.mark.unit
@@ -73,21 +109,15 @@ def test_open_segment_is_listed_only_on_request_and_read_up_to_last_flush(
 def test_restart_neither_duplicates_nor_corrupts_segments(tmp_path: Path) -> None:
     """RF-COL-04 CA-04.1. O primeiro processo cai no meio de uma escrita.
 
-    Processo 1: grava a e b, descarrega; grava c, que não chega a ser descarregado; o
-    disco fica com meio bloco gzip no fim (a queda foi durante a escrita dele).
+    Processo 1, de verdade um processo à parte (`CRASH`, modo "torn"): grava a e b,
+    descarrega; grava c, que não chega a ser descarregado; o disco fica com meio bloco
+    gzip no fim (a queda foi durante a escrita dele); o processo morre sem fechar nada.
     Reinício: `recover` fecha o segmento até o último bloco íntegro (a e b). Processo 2:
     grava d num segmento novo da mesma hora. Leitura: a, b, d, uma vez cada, e c perdido,
     que é o máximo que uma queda custa (o que não foi descarregado).
     """
+    crash(tmp_path, "torn")
     store = SegmentStore(tmp_path)
-    first = store.open_writer("SOL", "trades", HOUR, Ms(HOUR + 1))
-    first.append(rec(HOUR + 10, HOUR + 1, b"a"))
-    first.append(rec(HOUR + 11, HOUR + 1, b"b"))
-    first.flush()
-    first.append(rec(HOUR + 12, HOUR + 1, b"c"))
-    with first.ref.path.open("ab") as handle:  # a queda: meio bloco gzip no fim do arquivo
-        handle.write(gzip.compress(rec(HOUR + 12, HOUR + 1, b"c").encode(), mtime=0)[:15])
-
     (recovered,) = store.recover()
     second = store.open_writer("SOL", "trades", HOUR, Ms(HOUR + 20))
     second.append(rec(HOUR + 21, HOUR + 20, b"d"))
@@ -102,9 +132,9 @@ def test_restart_neither_duplicates_nor_corrupts_segments(tmp_path: Path) -> Non
 
 @pytest.mark.unit
 def test_recover_drops_an_open_segment_with_no_whole_block(tmp_path: Path) -> None:
+    crash(tmp_path, "empty")
     store = SegmentStore(tmp_path)
-    writer = store.open_writer("BTC", "bbo", HOUR, HOUR)
-    writer.append(rec(HOUR, HOUR, b"nunca descarregado"))
+    assert len(store.segments(include_open=True)) == 1
     assert store.recover() == []
     assert store.segments(include_open=True) == []
 
