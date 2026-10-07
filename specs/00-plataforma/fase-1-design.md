@@ -1,7 +1,7 @@
 # Fase 1 (estudo de simulação) — Design técnico
 
 **Status:** aprovado — gate 2 em 2026-10-07
-**Versão:** 1.0
+**Versão:** 1.1
 **Data:** 2026-10-07
 **Requisitos:** `fase-1-requirements.md`, versão 1.3
 **Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (proposto)
@@ -64,7 +64,7 @@ Quatro testes de arquitetura, por AST, sustentam isso: somente leitura (RNF-09, 
 | Biblioteca | Para quê | Onde pode ser importada |
 |---|---|---|
 | `polars` | Tabelas e arquivos Parquet | `storage`, `ingestion`, a compactação do `collector`, e como tipo de tabela nas bordas de `leader` e `selection` |
-| `numpy` | Vetores de preço e busca binária no simulador | `sim`, `analytics` |
+| `numpy` | Vetores de preço e busca binária no simulador; codificação do hash de conteúdo | `sim`, `analytics`, `storage` |
 | `httpx` | API de informação e arquivos da Binance | `ingestion` |
 | `websockets` | Coletor | `collector` |
 | `matplotlib` | Gráfico | `analytics/plot.py` |
@@ -275,11 +275,13 @@ def check_freeze(freeze: Freeze, repo: Repository, params: Params) -> None: ... 
 | F3 | Nenhuma quebra de continuidade em ativo do universo dentro da janela; nenhum fill de perpétuo do primeiro dex com campo inválido; todo episódio do universo aberto e fechado na janela com divergência de PnL dentro da tolerância; cobertura com status `ok` |
 | F4 | Número de episódios do universo abertos a partir de zero e fechados dentro da janela |
 | F5 | Os 8 blocos são os 56 dias que terminam no corte. Conta o bloco em que ao menos um episódio do universo foi aberto a partir de zero |
-| F6 | Mediana da duração dos mesmos episódios de F4 |
+| F6 | Mediana da duração dos mesmos episódios de F4. As duas pontas do intervalo contam |
 | F7 | Nos episódios do universo abertos a partir de zero na janela: notional dos fills que aumentam o módulo da posição com `crossed = true`, dividido pelo notional de todos os fills que aumentam |
 | F8 | Mediana, ponderada pelo tempo e medida sobre o tempo em posição, do número de perpétuos com posição diferente de zero. Posição já aberta no início da janela conta desde o início |
 | F9 | Notional dos fills em ativos do universo, dividido pelo notional de todos os fills da carteira na janela, em qualquer instrumento |
 | F10 | Nenhum fill com `liquidated_user` igual ao endereço da carteira |
+
+Todo limiar é inclusivo: "ao menos" e "até" incluem o valor, e um intervalo inclui as duas pontas.
 
 ### 3.7 Simulador (`copylab.sim`)
 
@@ -379,6 +381,8 @@ O texto da seção de vieses é uma constante, e um teste confere que ela está 
 ### 3.9 Parâmetros, custos e CLI
 
 `preregistro/parametros.toml` contém tudo o que §7.2 e §7.3 dos requisitos listam, mais o mapa de nomes entre as corretoras. `params.py` o carrega num modelo imutável e expõe o hash dos valores carregados, em forma canônica. Nenhum limiar aparece como literal no código. O teste que prova isso é de comportamento: para cada limiar, uma carteira sintética na fronteira muda de lado quando o valor no arquivo muda.
+
+**Onde mora cada número.** Número que muda o resultado do estudo fica em `parametros.toml` e entra no hash do congelamento, mesmo quando os requisitos o fixam num critério e não na tabela de §7.2. É o caso da cobertura mínima da medida de custo (95%, RF-COL-05 CA-05.2) e do silêncio que faz lacuna (10 s, RF-COL-02 CA-02.2). Número que só muda a operação fica em `Settings`: o limite de peso por minuto, o orçamento de disco e o horizonte da projeção de disco. Fato do protocolo da corretora, como o tamanho da página de fills, é constante nomeada no provedor, com a fonte no comentário.
 
 `preregistro/custos.json` contém o meio-spread mediano por ativo (RF-COL-05 CA-05.2). A medida é esta: nos 3 primeiros dias UTC completos, a contar do primeiro dia em que o ativo foi gravado, em que a cobertura dele foi de ao menos 95%, cada observação de melhor compra e venda tem meio-spread `(venda − compra) / (2 × ponto médio)`, em bps, e peso igual ao tempo até a observação seguinte, sem contar tempo dentro de lacuna. O valor gravado é a mediana ponderada. O arquivo guarda, por ativo, o valor, o intervalo usado e o hash dos dados. Cada ativo é medido uma vez: o comando acrescenta os ativos que ainda não estão no arquivo e nunca altera um valor já gravado. BTC é sempre medido. Cada congelamento copia os valores que usou.
 
@@ -740,6 +744,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.1 | 2026-10-07 | Respostas às perguntas do Bloco 0. Regra de onde mora cada número (§3.9). Limiares inclusivos (§3.6). `numpy` permitido em `storage` para o hash de conteúdo (§2.2) |
 | 1.0 | 2026-10-07 | **Aprovado.** Uma precisão em relação à 0.2, vinda da conferência do Claude Code: `window open` recusa commit com data no futuro, o que fecha a brecha de datar o commit à mão (§4.4) |
 | 0.2 | 2026-10-07 | Resposta à leitura cruzada do Claude Code. Corrigido: nenhum dado da janela de avaliação é baixado antes do congelamento; `seq` entra no hash dos fills; a publicação da Rota B é o instante do commit; custos medidos uma vez por ativo, e não uma vez só; redução pelo teto mínima e proporcional; protocolo de leitura em `ports`; gráfico devolvido em bytes; lacunas no relógio da corretora. Definido: métricas de RF-ANA-01, composição da grade, campos do congelamento, arquivo de resultado, sorteio por SHA-256, quais ativos recebem proxy |
 | 0.1 | 2026-10-06 | Rascunho inicial, sobre os requisitos 1.2. Já incorpora uma revisão independente, que encontrou dois defeitos (execução atrasada contabilizada no instante nominal, e teto que não disparava redução quando o preço andava) e várias definições que faltavam |
