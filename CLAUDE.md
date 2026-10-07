@@ -46,12 +46,12 @@ Qualquer conveniência que dê a um componente acesso ao futuro, mesmo indireto,
 - A seleção com corte T lê apenas dados com timestamp < T. O teste de aceitação (RF-SEL-01 CA-01.2) altera tudo a partir de T e exige coorte e congelamento idênticos.
 - Do leaderboard, a seleção lê só endereços e patrimônio. Campos de desempenho levantam exceção.
 - A avaliação se recusa a rodar sem arquivo de congelamento, ou com hash divergente.
-- **Nunca leia a janela de avaliação antes do congelamento**, nem para depurar, nem para "dar uma olhada". Nunca altere um parâmetro pré-registrado depois que uma janela de avaliação foi lida.
+- **Nunca leia nem baixe nada da janela de avaliação antes do congelamento**, fills ou dados de mercado, nem para depurar, nem para "dar uma olhada". Nunca altere um parâmetro pré-registrado depois que uma janela de avaliação foi lida.
 
 ### ADR-0002 — exposição relativa, teto de 1x
 
 - O alvo do seguidor é proporcional ao notional do líder dividido pela referência de exposição, que é medida só sobre o tempo em posição (ADR-0007) e congelada com a coorte.
-- Nenhuma ordem que aumenta a exposição deixa a exposição bruta acima de teto × patrimônio. Excesso que vem de variação de preço é reduzido no evento seguinte, salvo a redução que cai abaixo da ordem mínima, que é contada.
+- Nenhuma ordem que aumenta a exposição deixa a exposição bruta acima de teto × patrimônio. Excesso que vem de variação de preço é reduzido no evento seguinte, salvo a redução que cai abaixo da ordem mínima e a de ativo sem preço naquele instante, que são contadas.
 - Ordem abaixo do mínimo não é enviada, e a diferença persiste. Zerar é sempre executável.
 - A variante só compras é a mesma simulação com alvos negativos zerados, não um segundo simulador.
 
@@ -71,7 +71,7 @@ Qualquer conveniência que dê a um componente acesso ao futuro, mesmo indireto,
 
 - Não há servidor de banco. Dado bruto não é editado; tabelas são arquivos Parquet sob o diretório de dados, que fica fora do git.
 - O hash de um conjunto de dados é calculado do conteúdo em ordem canônica, nunca dos bytes do arquivo. Reescrever o mesmo conteúdo não muda o hash.
-- Só `copylab.storage` conhece o diretório de dados e o formato dos arquivos. Livro-razão, seleção, simulador e analytics recebem dados já materializados e devolvem objetos ou texto: quem grava é a CLI.
+- Só `copylab.storage` conhece o diretório de dados e o formato dos arquivos. Livro-razão, seleção, simulador e analytics leem por um protocolo de leitura (`copylab.ports`) e devolvem objetos, texto ou bytes: quem grava é a CLI.
 - Linha dentro de uma janela congelada nunca é reescrita.
 
 ### Se uma decisão precisar mudar
