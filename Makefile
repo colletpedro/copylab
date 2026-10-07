@@ -4,8 +4,8 @@
 # "quality" do CI (.github/workflows/ci.yml) invoca: lint, typecheck, test.
 # Se divergirem, o CI é a fonte da verdade e este arquivo está errado.
 #
-# Não há alvos `up`, `down` e `logs`: ainda não existe serviço. A escolha de
-# banco é decisão do design da Fase 1, que ainda não existe.
+# Não há alvos `up`, `down` e `logs`: não existe serviço. Os dados ficam em
+# arquivos Parquet sob COPYLAB_DATA_DIR, sem servidor de banco (ADR-0006).
 
 SHELL := /bin/bash
 

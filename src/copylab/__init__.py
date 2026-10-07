@@ -1,8 +1,8 @@
 """copylab — estudo de simulação de copy trading na Hyperliquid.
 
-Fase 0 (fundação): apenas estrutura, configuração e ferramental. Os subpacotes
-de domínio estão vazios de propósito — nenhum deles passou pelo gate de design
-descrito em `specs/README.md`.
+A arquitetura está em `specs/00-plataforma/fase-1-design.md`, e a ordem de construção,
+no plano de tarefas ao lado dele. Subpacote vazio está vazio de propósito até a tarefa
+que o preenche.
 """
 
 __all__ = ["__version__"]
