@@ -196,6 +196,11 @@ class ParquetStore:
                 found.append(tuple(relative))
         return sorted(found)
 
+    def disk_bytes(self, table: str) -> int:
+        """Bytes ocupados pelas partições da tabela (temporários incluídos)."""
+        base = self._table_dir(table)
+        return sum(path.stat().st_size for path in base.rglob("*") if path.is_file())
+
     def exists(self, table: str, partition: Partition) -> bool:
         return self._path(table, partition).is_file()
 

@@ -287,3 +287,13 @@ def test_first_write_inside_frozen_window_is_accepted(tmp_path: Path) -> None:
 def test_frozen_windows_are_normalized(tmp_path: Path) -> None:
     store = ParquetStore(tmp_path, frozen=[span(50, 80), span(0, 60), span(90, 90)])
     assert store.frozen == (span(0, 80),)
+
+
+@pytest.mark.unit
+def test_disk_bytes_sums_the_table_files(tmp_path: Path) -> None:
+    store = ParquetStore(tmp_path)
+    assert store.disk_bytes("t") == 0
+    store.write("t", ("a",), rows((1, "a", 1.0)), span=span(0, 10), instant="t")
+    store.write("t", ("b",), rows((1, "b", 1.0)), span=span(0, 10), instant="t")
+    expected = sum(p.stat().st_size for p in (tmp_path / "t").iterdir())
+    assert store.disk_bytes("t") == expected > 0
