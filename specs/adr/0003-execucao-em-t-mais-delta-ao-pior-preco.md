@@ -79,3 +79,7 @@ O contexto diz que na Rota B "há retratos do livro a cada meio segundo, aproxim
 A decisão não muda. Muda de onde vêm as duas observações adjacentes: do canal de melhor compra e venda, com a profundidade vinda do retrato rápido (RF-SIM-03 CA-03.2, RF-COL-01 CA-01.1).
 
 Medido na mesma gravação: o atraso entre o timestamp da corretora e o recebimento teve mediana de cerca de 0,3 s e p99 de cerca de 1 s, somando rede e diferença de relógio. O cenário de Δ = 1 s fica no limite do alcançável a partir da máquina do coletor. O primário, de 5 s, tem folga.
+
+## Errata — 2026-10-06 (design)
+
+A decisão diz que, sem observação em t + Δ, usa-se a próxima existente. Ela não diz o que o seguidor sabe do líder quando a execução atrasa, nem onde a ordem entra na contabilidade. O ADR-0008 decide os dois pontos e reenuncia o teste de mutação pelo relógio da execução. A frase "a decisão usa apenas eventos com instante ≤ t" vale como escrita sempre que há preço em t + Δ.

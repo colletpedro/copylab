@@ -70,3 +70,10 @@ alvo(c) = pico × ( notional do líder em c / N* ) × patrimônio do seguidor
 ## Revisitar quando
 
 A Rota B mostrar que mais da metade do notional do líder deixa de ser copiada por causa do mínimo ou do teto, o que indicaria que a regra, e não o mercado, determina o resultado. Também quando existir uma série confiável de patrimônio do líder, ou se o teto de alavancagem deixar de ser 1x.
+
+## Errata — 2026-10-06
+
+O corpo acima fica como foi escrito. O design da Fase 1 encontrou dois pontos.
+
+1. **O teto tem uma exceção que a tabela de invariantes não previu.** A decisão traz duas regras que se chocam num caso: a exposição depois de um evento respeita o teto, e ordem abaixo do mínimo não é enviada. Quando o preço anda contra o seguidor entre eventos, a exposição passa do teto sem ordem nenhuma. No evento seguinte, a redução que traria a carteira de volta pode ficar abaixo do mínimo, e então não pode ser enviada. Nesse caso o excesso permanece e é contado, e nenhum aumento é executado enquanto ele durar. A invariante da tabela, "exposição bruta ≤ teto × patrimônio após as ordens de um evento", passa a valer assim: nenhuma ordem que aumenta a exposição leva a carteira acima do teto, e toda redução que o teto exige é enviada, salvo a que cai abaixo do mínimo (RF-SIM-02 CA-02.7). A decisão não muda.
+2. **A definição de `N*` foi refinada pelo ADR-0007.** O percentil passa a ser medido só sobre o tempo em posição. Isso altera um item da seção Decisão, e por isso está em ADR próprio, e não nesta errata.
