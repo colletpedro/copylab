@@ -77,3 +77,9 @@ O corpo acima fica como foi escrito. O design da Fase 1 encontrou dois pontos.
 
 1. **O teto tem uma exceção que a tabela de invariantes não previu.** A decisão traz duas regras que se chocam num caso: a exposição depois de um evento respeita o teto, e ordem abaixo do mínimo não é enviada. Quando o preço anda contra o seguidor entre eventos, a exposição passa do teto sem ordem nenhuma. No evento seguinte, a redução que traria a carteira de volta pode ficar abaixo do mínimo, e então não pode ser enviada. Nesse caso o excesso permanece e é contado, e nenhum aumento é executado enquanto ele durar. A invariante da tabela, "exposição bruta ≤ teto × patrimônio após as ordens de um evento", passa a valer assim: nenhuma ordem que aumenta a exposição leva a carteira acima do teto, e toda redução que o teto exige é enviada, salvo a que cai abaixo do mínimo (RF-SIM-02 CA-02.7). A decisão não muda.
 2. **A definição de `N*` foi refinada pelo ADR-0007.** O percentil passa a ser medido só sobre o tempo em posição. Isso altera um item da seção Decisão, e por isso está em ADR próprio, e não nesta errata.
+
+## Errata — 2026-10-07
+
+O item 1 da errata anterior diz que a única redução exigida pelo teto que fica sem enviar é a que cai abaixo do mínimo. Há um segundo caso, encontrado na leitura cruzada do design: o ativo a reduzir pode não ter observação de preço naquele instante. Nenhum preço é inventado, então essa redução também não é enviada. O tratamento é o mesmo: o excesso é contado, e nenhum aumento é executado enquanto ele durar (RF-SIM-02 CA-02.7).
+
+Fica também explícito quanto se reduz: o mínimo que devolve a carteira ao teto, repartido entre os ativos em proporção ao que cada um excede do seu alvo (RF-SIM-02 CA-02.2). A decisão não muda.
