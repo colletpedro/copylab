@@ -1,0 +1,41 @@
+# Ativos que o coletor grava (design §3.4 e decisão 12; T-014).
+#
+# Ponto de partida: os 27 perpétuos do primeiro dex que a verificação de dados
+# encontrou com equivalente na Binance, na ordem de notional da tabela de
+# RF-VER-05 CA-05.4 em docs/verificacao-de-dados.md (linhas com "sim"; GRAM, com
+# arquivo em 6 de 7 dias, ficou de fora). BTC está sempre na lista: o benchmark
+# depende dele (RF-SEL-08 CA-08.5), e o carregador recusa uma lista sem ele.
+#
+# Mudar a lista é um ato deliberado (decisão 12): commit, e reinício do coletor.
+# Os ativos candidatos da Rota A que faltarem entram aqui quando o pool for ingerido
+# (design §4.1, passo 3). Remover um ativo só por emenda (risco 9 do design: disco).
+
+coins = [
+    "HYPE",
+    "BTC",
+    "ETH",
+    "ZEC",
+    "PUMP",
+    "SOL",
+    "LIT",
+    "ENA",
+    "INJ",
+    "DOGE",
+    "ASTER",
+    "TRUMP",
+    "PENGU",
+    "VVV",
+    "AAVE",
+    "FARTCOIN",
+    "XRP",
+    "NEAR",
+    "ADA",
+    "XMR",
+    "UNI",
+    "kBONK",
+    "SYRUP",
+    "WLD",
+    "kPEPE",
+    "LINK",
+    "AVAX",
+]
