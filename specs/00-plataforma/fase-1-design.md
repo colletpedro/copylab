@@ -1,10 +1,10 @@
 # Fase 1 (estudo de simulação) — Design técnico
 
-**Status:** em revisão — gate 2 pendente
-**Versão:** 0.2
+**Status:** aprovado — gate 2 em 2026-10-07
+**Versão:** 1.0
 **Data:** 2026-10-07
 **Requisitos:** `fase-1-requirements.md`, versão 1.3
-**Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (não iniciado)
+**Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (proposto)
 
 > Este documento diz **como** a fase é construída. O que ela faz está nos requisitos, e as decisões caras de reverter estão nos ADRs 0001 a 0008. Onde este texto e os requisitos divergirem, valem os requisitos, e este texto está errado.
 
@@ -454,7 +454,7 @@ O teto é garantido onde o seguidor age: nenhuma ordem que aumenta a exposição
 
 A janela de avaliação da Rota B não é escolhida por ninguém: é função de um instante registrado e das lacunas gravadas.
 
-1. **Publicação.** O instante de publicação é o do commit do congelamento, lido do git, e não o momento em que alguém roda um comando. Depois do `push`, `copylab window open` confere que esse commit está no remoto e grava `preregistro/rota-b-publicacao.json`, com o hash do congelamento, o commit e o instante dele. O comando se recusa a rodar a partir da primeira meia-noite UTC posterior ao commit. Assim, rodar mais tarde não desloca a janela, e quem perde o prazo precisa de um congelamento novo. O arquivo é versionado e nunca é sobrescrito.
+1. **Publicação.** O instante de publicação é o do commit do congelamento, lido do git, e não o momento em que alguém roda um comando. Depois do `push`, `copylab window open` confere que esse commit está no remoto e grava `preregistro/rota-b-publicacao.json`, com o hash do congelamento, o commit e o instante dele. O comando se recusa a rodar a partir da primeira meia-noite UTC posterior ao commit, e recusa também um commit com data no futuro. Com as duas recusas, a data do commit só pode cair no mesmo dia UTC em que o comando roda: datar o commit para trás ou para a frente não desloca a janela, e rodar mais tarde também não. Quem perde o prazo precisa de um congelamento novo. O arquivo é versionado e nunca é sobrescrito.
 2. **Início.** A primeira meia-noite UTC posterior à publicação em que o coletor está gravando todos os ativos do universo e BTC (RF-SEL-05 CA-05.3, RF-SEL-08 CA-08.4). "Gravando" é: fora de lacuna naquele instante.
 3. **Fim.** `effective_window(início, dias, extensão, cobertura mínima, lacunas)`. Se, ao fim dos `dias`, todo ativo tem cobertura de ao menos 95%, a janela termina ali. Senão, termina na primeira meia-noite UTC, dentro da extensão máxima, em que todo ativo acumulou `dias` inteiros de tempo sem lacuna. Se nenhuma serve, o resultado é ausente e a janela é inconclusiva. Para a semana ao vivo, 7 dias e extensão de 3. Para o veredito, 30 dias e extensão de 15.
 4. **Gate.** `gate` calcula a semana por essa função. Se os dados ainda não alcançam o fim da semana, o comando sai sem gravar nada e diz quanto falta. Se a semana é inconclusiva, grava `preregistro/gate.json` com esse resultado, que conta como não atingido. Nos demais casos, simula a semana com o livro e com o proxy e grava o resultado. Depois de gravado, o comando se recusa a rodar de novo.
@@ -740,5 +740,6 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.0 | 2026-10-07 | **Aprovado.** Uma precisão em relação à 0.2, vinda da conferência do Claude Code: `window open` recusa commit com data no futuro, o que fecha a brecha de datar o commit à mão (§4.4) |
 | 0.2 | 2026-10-07 | Resposta à leitura cruzada do Claude Code. Corrigido: nenhum dado da janela de avaliação é baixado antes do congelamento; `seq` entra no hash dos fills; a publicação da Rota B é o instante do commit; custos medidos uma vez por ativo, e não uma vez só; redução pelo teto mínima e proporcional; protocolo de leitura em `ports`; gráfico devolvido em bytes; lacunas no relógio da corretora. Definido: métricas de RF-ANA-01, composição da grade, campos do congelamento, arquivo de resultado, sorteio por SHA-256, quais ativos recebem proxy |
 | 0.1 | 2026-10-06 | Rascunho inicial, sobre os requisitos 1.2. Já incorpora uma revisão independente, que encontrou dois defeitos (execução atrasada contabilizada no instante nominal, e teto que não disparava redução quando o preço andava) e várias definições que faltavam |
