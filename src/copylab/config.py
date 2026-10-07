@@ -66,6 +66,28 @@ class Settings(BaseSettings):
         gt=0,
         description="Horizonte, em dias, da projeção de disco do coletor (RF-COL-04 CA-04.2).",
     )
+    collector_flush_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        description="De quanto em quanto tempo o gravador descarrega os segmentos no disco. "
+        "É o máximo que uma queda do processo faz perder.",
+    )
+    collector_silence_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="Sem nenhuma mensagem por este tempo, o gravador dá a conexão por morta "
+        "e reconecta. Não é a regra de lacuna, que está no arquivo de parâmetros.",
+    )
+    collector_backoff_initial_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        description="Primeira espera antes de reconectar; dobra a cada falha seguida.",
+    )
+    collector_backoff_max_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        description="Espera máxima entre tentativas de reconexão.",
+    )
 
     def __init__(self, **data: Any) -> None:
         try:
