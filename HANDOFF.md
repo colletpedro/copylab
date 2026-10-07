@@ -398,3 +398,171 @@ medir" estão no fim do relatório. Em uma frase cada:
 
 Levar a seção nova de `docs/verificacao-de-dados.md` à conversa de arquitetura **junto com a decisão sobre a
 emenda 1.1**. Só depois da aprovação, o gate 2 (design).
+
+---
+
+# HANDOFF — Requisitos 1.2, design 0.1 e ADRs 0006 a 0008 (prompt 04)
+
+**Data:** 2026-10-06
+**Escopo entregue:** os oito arquivos da entrega nos seus lugares, sem edição; índices e estado atualizados;
+conferência cruzada dos documentos (§3 abaixo).
+**Escopo deliberadamente não entregue:** qualquer implementação, dependência nova, `preregistro/`, `config/` ou
+diretório de dados; mudança de status dos requisitos, do design ou dos ADRs 0006 a 0008. O gate é do Pedro.
+
+## 1. O que foi feito
+
+- A entrega estava em `entrega-04/`, com os caminhos do repositório. Copiei os oito arquivos e removi a pasta.
+  `git diff --stat` mostrou quatro modificados (`CLAUDE.md`, requisitos, ADR-0002, ADR-0003) e quatro novos
+  (design, ADRs 0006 a 0008), e nada mais.
+- ADRs 0001, 0004 e 0005 sem diff. Nos ADRs 0002 e 0003, **0 linhas removidas**: um único bloco acrescentado
+  depois da última linha (`@@ -72,0 +73,7` e `@@ -81,0 +82,4`).
+- `specs/README.md`: tabela de estado (1.2 proposta, design 0.1 em revisão, tarefas não iniciadas), ADRs 0006 a
+  0008 como propostos, 0002 e 0003 anotados como refinados por 0007 e 0008, regra de errata copiada de
+  `CLAUDE.md` §2 sem reescrita, roadmap (verificação concluída; 1A aguarda o gate de design).
+- `specs/CHANGELOG.md`: entradas de 2026-10-06 para requisitos 1.2, design 0.1, erratas, ADRs 0006 a 0008 e
+  `CLAUDE.md`. O resumo dos requisitos sai da linha 1.2 do histórico do próprio documento.
+- `Emenda 1.1/` removida: não versionada, cinco arquivos, todos idênticos (`cmp`) aos do `HEAD`.
+
+## 2. Verificação
+
+| Critério | Estado |
+|---|---|
+| `make check` | ✅ 105 testes, `ruff` e `mypy --strict` limpos (ver nota sobre `Phase 1 Design.md`) |
+| Oito arquivos sem edição | ✅ copiados com `cp`; diff dos ADRs aceitos só com acréscimo |
+| Nada implementado, nenhuma dependência | ✅ `src/`, `pyproject.toml` e `uv.lock` intocados |
+
+**Nota.** Havia na raiz um `Phase 1 Design.md` não rastreado, que o prompt não cita, idêntico byte a byte ao
+`fase-1-design.md` entregue. Ele derruba o `make lint` local (o `ruff format` tenta formatar o bloco Python dele;
+`specs/` está excluída do formatador, a raiz não). Não está no git, então o CI não é afetado. Tirei-o da raiz só
+para rodar o `make check` e o devolvi; não apaguei. Pergunta em aberto (§4).
+
+## 3. Conferência cruzada
+
+### 3.1 Itens mecânicos
+
+1. **Critérios de RF-ING a RF-CLI no mapa de §8.2:** 112 critérios nos requisitos, 112 linhas no mapa. Nenhum
+   critério sem linha; nenhuma linha que cite critério inexistente.
+2. **Nomes de teste dos ADRs 0001 a 0008 em §8:** todos aparecem, escritos igual.
+3. **Nome repetido no mapa para critérios diferentes:** nenhum.
+
+Observações laterais: `test_evaluation_ingest_requires_freeze` (§8.1) não tem critério nos requisitos, porque a
+guarda da ingestão só existe no texto de RF-CLI-01; e RF-COL-04 CA-04.2 ("dado 45 dias de execução, o disco está
+dentro do orçamento") é uma aceitação operacional que o teste mapeado, de projeção, não prova sozinho.
+
+### 3.2 Leitura do design contra os requisitos e os ADRs
+
+Em ordem decrescente de impacto, dentro de cada grupo.
+
+**Contradições entre documentos**
+
+1. **Redução pelo teto sem preço.** Design §4.3 passo 6: se a fonte não tem observação de `j` em `τ`, a redução
+   "não é enviada e é contada". RF-SIM-02 CA-02.7 diz que "a única redução que fica sem enviar é a que cai abaixo
+   da ordem mínima"; a errata do ADR-0002 e o `CLAUDE.md` §2 dizem o mesmo. O teste
+   `test_cap_reduction_without_price_is_counted`, mapeado a CA-02.7, prova um caso que o critério diz não existir.
+2. **Leitura de mercado da janela de avaliação antes do congelamento.** Design §3.3 isenta proxy e funding da
+   guarda; §4.1 passo 3 e o exemplo de RF-CLI-01 (`ingest market --from 2026-07-01 --to 2026-09-30`) baixam
+   setembro antes do congelamento da Rota A. ADR-0004 (pré-registro "antes de qualquer leitura da janela de
+   avaliação"), o glossário (Congelamento), o DoD da Parte 1A e o `CLAUDE.md` §2 não fazem essa exceção. Falta
+   decidir, por escrito, que ingerir dado de mercado não é "ler a janela", e o que impede de lê-lo.
+3. **Hash de fills sem `seq` e resultado que depende de `seq`.** §3.2 exclui `seq` do hash "para não depender da
+   ordem em que a API devolve os fills de um mesmo milissegundo". Mas `LeaderEvent.px` é o preço do *último* fill
+   do evento (§3.5), e a continuidade (RF-ING-03 CA-03.1) percorre os fills na ordem de `seq`. Dois conjuntos com
+   o mesmo hash podem dar eventos, `N*` e quebras diferentes, e `check_freeze` (RF-SEL-05 CA-05.2) não vê a
+   diferença. O risco 10 de §7 cita a ordem, mas não essa consequência.
+4. **Pacotes de lógica "recebem dados já materializados"** (§2.1, ADR-0006 decisão 7, `CLAUDE.md` §2), mas
+   `candidate_assets`, `wallet_facts` e `check_freeze` (§3.6) recebem um `Repository`/`BoundedRepository` e leem
+   sob demanda. Para tipar, `selection` importaria o protocolo de `storage`.
+5. **`analytics/plot.py` grava arquivo** (§2.1), contra "quem grava é a CLI" (`CLAUDE.md` §2, ADR-0006) e contra o
+   enunciado de `test_architecture_logic_packages_are_pure` ("não importam ... arquivo"). Devolver os bytes da
+   imagem resolveria sem exceção.
+6. **Limite de peso.** RF-ING-07 CA-07.1: "limite configurado (default 1.200)". Design §3.3: "o limite de trabalho
+   é 1.000 por minuto". Não fica dito qual é o default configurado.
+7. **Glossário desatualizado nos requisitos.** "Teto de alavancagem: máximo que o seguidor pode ter logo após
+   executar as ordens de um evento". Depois de CA-02.7 (1.2), o excesso pode sobreviver a um evento.
+8. **RF-SIM-03 CA-03.3** ainda diz "reavaliado no próximo evento"; CA-02.4 passou a "próximo evento daquele líder
+   naquele ativo", e o design (§4.3 passo 9) segue CA-02.4. Profundidade excedida num aumento não é reavaliada num
+   evento de outro ativo.
+9. **Janela de seleção da Rota B.** §7.2: "os 62 dias anteriores ao congelamento". Design §4.1 passo 7: "os 62 dias
+   que terminam no corte", com o corte antes do congelamento.
+10. **Nomes de teste que descrevem o enunciado antigo.** `test_mutating_future_does_not_change_orders_decided_before_cutoff`
+    prova agora "ordens executadas até c + Δ" (ADR-0008); `test_gross_exposure_never_exceeds_cap_after_event`
+    prova agora "nenhuma ordem que aumenta passa do teto", e o excesso depois de um evento é permitido. Manter os
+    nomes preserva a rastreabilidade com os ADRs aceitos, mas quem ler o nome entende outra coisa.
+11. **Teste de RNF-09.** Design §2.1 e ADR-0001 chamam de `test_architecture_no_order_or_signing_imports` um teste
+    "já existente". O existente se chama `test_source_tree_has_no_order_or_signing_imports`
+    (`tests/unit/test_architecture_read_only.py`).
+12. **`LookaheadError`.** O `CLAUDE.md` §3 já manda usá-la, mas ela não existe em `copylab.exceptions` (o design a
+    cria). A docstring atual de `DataError` diz cobrir "leitura proibida", que se sobrepõe a ela.
+
+**Assinaturas e tabelas de §3 que não sustentam um critério**
+
+13. **`window open` decide o início da Rota B pelo relógio de quem roda** (§4.4 passo 1, `clock.now()`). Rodar o
+    comando um dia depois do `push` muda o início da janela, contra a decisão 21 ("o início não pode ser escolha
+    de quem roda") e RF-SEL-05 CA-05.3 ("posterior à publicação"). O git não registra o instante do `push`.
+14. **Custos da Rota B.** `custos.json` é gravado uma vez e o comando recusa sobrescrevê-lo (§3.9). Ativos que
+    entram no coletor no passo 7 de §4.1, para a Rota B, nunca terão meio-spread, e falham em RF-SEL-08 CA-08.1 (v);
+    a perna do proxy de RF-SIM-03 CA-03.4 também precisa do slippage deles. Se a intenção é que o universo da Rota B
+    seja subconjunto dos ativos medidos antes da Rota A, isso precisa estar escrito. Também não está dito que
+    `costs measure` cobre BTC, de que o benchmark da Rota A precisa.
+15. **Veredito da Rota A para o gate.** `pilot_gate(route_a: Verdict, ...)` precisa da condição (i), mas
+    `evaluate` só grava relatório em texto. Não há artefato do veredito da Rota A definido para o `gate` ler.
+16. **Métricas sem definição.** RF-ANA-01 lista "número de episódios copiados", "taxa de acerto por episódio" e
+    "giro"; §3.8 não define nenhum, e RF-ANA-07 CA-07.1 depende de "episódios copiados". Em RF-ANA-04, não está
+    dito qual notional do líder se atribui a uma ordem parcialmente cortada (mínimo, teto, profundidade). O "excesso
+    contado" de CA-02.7 não tem unidade (eventos, dólares ou tempo).
+17. **Composição da grade** (RF-SIM-08): fatorial (Δ × slippage × capital, 27 cenários) ou um fator por vez em
+    torno do primário. Muda o custo das coortes de controle (§3.8) e o que o relatório mostra.
+18. **`timeutil` não converte texto em instante.** `--cutoff 2026-10-20`, `--from/--to` (RF-CLI-01) e as datas de
+    §7.2 no `parametros.toml` (o `tomllib` devolve `datetime.date`) precisam de conversão, e "só `timeutil` importa
+    `datetime`". §3.1 só tem a direção contrária (`iso`).
+19. **`clock` só tem `now() -> Ms`.** `WeightBudget` recebe um relógio `float` e um `sleep`; o coletor precisa de
+    temporizador para os 10 s de silêncio e para o ping. Não está dito de onde vêm sem violar
+    `test_architecture_time_boundary`, nem o que exatamente esse teste proíbe (`time`, relógio do laço `asyncio`).
+20. **Relógio das lacunas.** Lacunas nascem do recebimento local (desconexão, silêncio), mas `BookSource` compara
+    instantes da corretora (decisão 20). A tabela `gaps` não diz em que relógio estão `start_ms` e `end_ms`, nem se
+    a lacuna por silêncio começa na última mensagem ou 10 s depois.
+21. **Quais janelas um congelamento "cobre"** (§3.2). Só a de seleção, ou também a de avaliação? Na Rota B a
+    janela de avaliação é ingerida dia a dia; uma reingestão depois do relatório mudaria o resultado sem que nada
+    recusasse.
+22. **`Freeze`** não tem campos definidos, e a "versão do código" de RF-SEL-05 CA-05.1 não tem fonte (SHA do
+    `HEAD`? árvore suja recusada?).
+23. **Ativos candidatos e download do proxy.** §4.1 passo 3 baixa o proxy "dos ativos candidatos", mas não diz que
+    conjunto é esse, nem como se confere a condição (i) ("dados em todos os dias da janela") antes de baixar.
+24. **Instantes futuros no laço.** `next_wake` e `available_from` devolvem instantes de eventos e observações
+    posteriores a `τ − Δ`. RF-SIM-01 CA-01.3 diz que pedir "um evento do líder posterior a `τ − Δ`" levanta exceção.
+    O design argumenta que só o instante vaza e que o teste de mutação o cobre; o critério, como escrito, não admite
+    a exceção.
+25. **Algoritmo de sorteio.** A semente está pré-registrada, mas o gerador, o embaralhamento e a derivação de um
+    fluxo por rótulo (§3.6) não. Como o pool é pré-registrado, o algoritmo também precisa estar fixado antes da
+    primeira seleção, ou vira um grau de liberdade.
+
+**Passos de §4.3 que eu não saberia implementar sem perguntar**
+
+26. **Passo 6 com sinais opostos.** O seguidor está comprado em `j` e `alvo_j` é negativo. "Redução até `alvo_j`"
+    cruza o zero e abre posição num ativo sem evento, o que CA-02.2 proíbe ("só redução"). Reduz até zero, ou até
+    `alvo_j`?
+27. **Passo 6, quanto reduzir.** A redução vai até `alvo_j` inteiro, e não até o mínimo que devolve a carteira ao
+    teto. CA-02.2 fala em "redução exigida pelo teto". Ir até o alvo gera o giro por deriva que a decisão 4 quer
+    evitar. Confirmar qual das duas.
+28. **Passo 8, valoração de `c`.** "Com `c` ao preço médio da ordem": a posição que já existia em `c` também é
+    reavaliada a esse preço, em `P` e em `O`, como a fórmula de um nível sugere ("com `c` à cotação"), ou só a parte
+    nova?
+29. **Funding em §4.2.** No instante `H`, aplica-se o registro com `hour_ms = H` (pago em `H`, pela hora
+    `[H − 1 h, H)`)? E no teste de mutação, "funding posterior" é julgado por `hour_ms` ou por `time_ms`, que cai
+    de 0 a 127 ms depois da hora (RF-VER-05 CA-05.3)?
+
+## 4. Em aberto
+
+1. **O gate de design**: requisitos 1.2, design 0.1 e ADRs 0006 a 0008, com a lista de §3.2 acima.
+2. **`AGENTS.md`**: não rastreado, mesmo conteúdo de abertura do `CLAUDE.md`. Perguntei se é seu; não versionei nem
+   apaguei.
+3. **`Phase 1 Design.md`** na raiz: cópia idêntica do design, não rastreada, derruba o `make lint` local. Aguarda
+   confirmação para apagar.
+4. **PRs do Dependabot** abertos, todos com CI verde nos dois jobs, sem merge: `actions/checkout` 5 → 7 (#1),
+   `astral-sh/setup-uv` 6 → 7 (#2), `actions/upload-artifact` 4 → 7 (#3).
+5. Os pontos herdados dos HANDOFFs anteriores continuam valendo (tolerância ao exit 5 em `make test-integration`,
+   templates com `quantlab`, cobertura trivial, avisos do CI).
+
+## 5. Próximo passo
+
+Gate de design na conversa de arquitetura. Só depois dele, o plano de tarefas (`fase-1-tasks.md`).

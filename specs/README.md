@@ -17,27 +17,32 @@ Cada transição é um gate explícito. Um gate reprovado volta para a etapa ant
 
 | Spec | Versão | Requisitos | Design | Tarefas | Implementada |
 |---|---|---|---|---|---|
-| `00-plataforma/fase-1` | 1.1 | 🟡 1.0 aprovada; **emenda 1.1 proposta, aguardando aprovação** | ⬜ aguarda a aprovação da emenda 1.1 | ⬜ | ⬜ |
+| `00-plataforma/fase-1` | 1.2 | 🟡 1.0 aprovada; **versão 1.2 proposta**, aguardando o gate de design | 🟡 **0.1 em revisão** (`fase-1-design.md`), aguardando o mesmo gate | ⬜ não iniciadas | ⬜ |
 
 ## ADRs
 
 Numerados e imutáveis. Quando uma decisão muda, cria-se um ADR novo que declara supersedência do anterior. O antigo não é editado nem removido.
 
+Uma **errata** datada, acrescentada ao fim do ADR, corrige um fato e as consequências que dependiam dele, ou aponta para o ADR que o refina. O corpo do ADR não é tocado. Uma errata não pode alterar o que a seção Decisão determina nem inverter a escolha: isso exige ADR novo.
+
 | # | Título | Status |
 |---|---|---|
 | 0001 | Usar fills públicos da Hyperliquid como fonte de sinal | aceito, com errata de 2026-10-06 |
-| 0002 | Espelhar a exposição relativa do líder, com teto de alavancagem de 1x | aceito |
-| 0003 | Executar o seguidor em t + Δ, ao pior preço observado | aceito, com errata de 2026-10-06 |
+| 0002 | Espelhar a exposição relativa do líder, com teto de alavancagem de 1x | aceito, com errata de 2026-10-06; a definição de `N*` é refinada pelo ADR-0007 |
+| 0003 | Executar o seguidor em t + Δ, ao pior preço observado | aceito, com duas erratas de 2026-10-06; o caso sem preço em t + Δ é refinado pelo ADR-0008 |
 | 0004 | Avaliar em duas rotas: triagem retrospectiva e veredito prospectivo | aceito, com errata de 2026-10-06 |
 | 0005 | Liberar um piloto de US$ 50 pela Rota A e por uma semana de consistência | aceito |
+| 0006 | Guardar os dados em arquivos Parquet locais, sem servidor de banco | proposto |
+| 0007 | Medir a referência de exposição só sobre o tempo em posição | proposto |
+| 0008 | Executar a ordem atrasada quando há preço, uma por evento, com o que o seguidor já viu | proposto |
 
 ## Roadmap
 
 | Fase | Escopo | Estado |
 |---|---|---|
 | 0 | Fundação: repositório, CI e convenções herdadas do quantlab | concluída |
-| 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | RF-VER-01 a RF-VER-05 executadas em 2026-10-06 (`docs/verificacao-de-dados.md`); a RF-VER-05 (complementar) integra a emenda 1.1, ainda proposta |
-| 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | requisitos 1.0 aprovados; emenda 1.1 proposta, aguardando aprovação |
+| 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | concluída: RF-VER-01 a RF-VER-05 executadas em 2026-10-06 (`docs/verificacao-de-dados.md`) |
+| 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | aguarda o gate de design: requisitos 1.2 propostos, design 0.1 em revisão e ADRs 0006 a 0008 propostos |
 | 1B | Semana ao vivo: 7 dias de livro gravado e o gate do piloto | depende de 1A |
 | 1C | Veredito do estudo: 30 dias de avaliação prospectiva | depende de 1B |
 | 2 | Piloto com dinheiro real, limitado a US$ 50, com spec própria | bloqueada até o gate do piloto ser atingido |

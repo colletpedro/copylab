@@ -7,34 +7,33 @@ O estado dos gates mora em [`specs/README.md`](../specs/README.md). Este arquivo
 
 ## Onde estamos
 
-**Fase 0 concluída (2026-10-05). Verificação de dados (RF-VER-01 a RF-VER-04) executada em
-2026-10-06**, com relatório em [`docs/verificacao-de-dados.md`](verificacao-de-dados.md). **Emenda 1.1
-dos requisitos proposta, aguardando aprovação** (2026-10-06): ela resolve os dez pontos em que a
-verificação contradisse a spec e acrescenta RF-VER-05. Nenhum código de domínio existe em `src/`.
+**Fase 0 concluída (2026-10-05). Verificação de dados (RF-VER-01 a RF-VER-05) concluída em
+2026-10-06**, com relatório em [`docs/verificacao-de-dados.md`](verificacao-de-dados.md). **Requisitos
+1.2 propostos, design 0.1 em revisão e ADRs 0006 a 0008 propostos** (2026-10-06): os quatro aguardam
+o mesmo gate, o de design. Nenhum código de domínio existe em `src/`.
 O repositório está publicado em `https://github.com/colletpedro/copylab`, e o primeiro CI passou.
 Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
 | Item | Estado |
 |---|---|
-| Requisitos da Fase 1 | 🟡 1.0 aprovada; **emenda 1.1 proposta, aguardando aprovação** |
-| ADRs 0001 a 0005 | ✅ aceitos; 0001, 0003 e 0004 com errata de 2026-10-06 (corpo inalterado) |
+| Requisitos da Fase 1 | 🟡 1.0 aprovada; **versão 1.2 proposta**, aguardando o gate de design |
+| ADRs 0001 a 0005 | ✅ aceitos; 0001, 0002 e 0004 com errata de 2026-10-06, 0003 com duas (corpo inalterado) |
+| ADRs 0006 a 0008 | 🟡 propostos; passam a aceitos com a aprovação do design. 0007 refina o 0002 (`N*`), 0008 refina o 0003 (execução sem preço em t + Δ) |
 | Fundação (Fase 0) | ✅ `make check` verde; CI verde no GitHub |
 | Verificação de dados (§4.1) | ✅ RF-VER-01 a 04 executadas: 8 `ok`, 1 `a emendar`, 2 `reprova`, 1 `não medido` |
 | Verificação complementar (RF-VER-05) | ✅ executada em 2026-10-06: 4 `ok` (seção no fim do relatório). Nenhuma quebra de continuidade é explicada pela paginação; 1,7% dos episódios passam de 1 bp do notional (7 de 39 carteiras com ao menos um) |
-| Design da Fase 1 | ⬜ aguarda a aprovação da emenda 1.1 |
+| Design da Fase 1 | 🟡 0.1 em revisão (`specs/00-plataforma/fase-1-design.md`), aguardando o gate 2 |
 | Plano de tarefas | ⬜ |
 | Implementação | ⬜ |
 | Coletor prospectivo | ⬜ (primeira coisa a entrar em operação, ADR-0004) |
 
 ## Próximo
 
-**Conversa de arquitetura**, com o relatório inteiro (RF-VER-01 a RF-VER-05) e a decisão sobre a
-**aprovação da emenda 1.1**. Nada é implementado com base na emenda enquanto ela estiver só proposta.
-Pontos que a RF-VER-05 deixou para essa decisão: (1) o efeito por carteira da regra de 1 bp (7 de 39
-inelegíveis, contra 1,7% dos episódios); (2) a causa das quebras de continuidade, que a paginação não
-explica; (3) as qualificações de F9 com o universo por regra (circularidade, "equivalente" como
-existência de arquivo, escala de 3.000 candidatas); (4) se as erratas de ADR bastam ou se a revogação de
-consequências pede ADR novo (CLAUDE.md §2).
+**Gate de design, na conversa de arquitetura.** Aprova-se ou devolve-se, no mesmo gate, os requisitos
+1.2, o design 0.1 e os ADRs 0006 a 0008. A conferência cruzada do prompt 04 (no `HANDOFF.md`) lista as
+divergências encontradas entre eles, para essa conversa. Nada é implementado enquanto o gate não for
+feito; depois dele vem o plano de tarefas (`fase-1-tasks.md`), que é quem decide a entrada de `polars`
+e das demais dependências.
 
 ## O que existe no código
 
