@@ -655,3 +655,130 @@ tarefa renomeia o teste de somente leitura e cria `LookaheadError`.
   andamento; ADRs 0006 a 0008 aceitos; roadmap 1A em implementação), `specs/CHANGELOG.md` e `docs/STATE.md`.
 - **`Phase 1 Tasks.md` na raiz**, não rastreado: idêntico ao `fase-1-tasks.md` entregue, exceto pela linha de
   status que eu editei depois. Não apaguei (ver §Em aberto).
+
+## 2. Parte 2 — Bloco 0
+
+| Tarefa | Entrega | Testes com nome do design | Prova de dente |
+|---|---|---|---|
+| T-001 | Teste de RNF-09 renomeado; `LookaheadError`; docstring de `DataError`; subpacote `leader`; `copylab.leader` em `source_pkgs` | `test_architecture_no_order_or_signing_imports` | refeita com o nome novo |
+| T-002 | `timeutil` (assinaturas de §3.1) e `clock` (`now`, `monotonic`, `sleep`) | `test_architecture_time_boundary` | sim |
+| T-003 | `ports`: `Repository` e `BoundedRepository` | `test_selection_reading_at_or_after_cutoff_raises` (parte do repositório; a parte da seleção chega com T-066) | sim |
+| T-004 | `polars` por `uv add`; `COPYLAB_DATA_DIR`; `storage`: diretório, partições, escrita atômica, hash de conteúdo, `Writer`, trechos gravados e janelas congeladas | `test_content_hash_ignores_file_bytes_and_row_order`, `test_interrupted_write_leaves_previous_table_intact`, `test_frozen_rows_are_never_rewritten`, `test_architecture_storage_isolation`, `test_architecture_logic_packages_are_pure` | sim, nos cinco |
+| T-005 | `preregistro/parametros.toml` e `params.py` | (o teste de comportamento dos limiares, `test_thresholds_come_only_from_parameter_file`, é de T-063) | transcrição e hash |
+
+Cada prova de dente está na docstring do arquivo de teste: a mutação, o que caiu e o que não caiu.
+Duas mutações sobreviveram na primeira tentativa e mudaram o código ou os testes, e não a docstring:
+
+- No hash de conteúdo, tirar a normalização de `-0.0` em `_canonical_float` não derrubava nada:
+  a normalização que importa é a de antes da ordenação, e o ramo era código morto. Saiu, e a
+  mutação passou a ser feita onde vale.
+- Em `params`, tirar `sort_keys` do hash não derrubava nada: o dump segue a ordem dos campos no
+  modelo, não a do arquivo. Entrou `test_hash_is_the_documented_canonical_json`, que fixa a
+  codificação e cai com a mutação.
+
+## 3. Decisões que tomei onde o design não decidia — revise
+
+Em ordem decrescente de impacto.
+
+1. **Trecho já coletado (T-004) — perguntei.** O design diz que, em janela congelada, "mudar ou
+   inserir linha num trecho já coletado" não é permitido, mas não diz como o núcleo genérico sabe o
+   que foi coletado. **O Pedro escolheu:** storage registra os trechos. Cada escrita declara o
+   intervalo `[início, fim)` que descreve por inteiro e substitui as linhas dele; a partição guarda
+   os trechos gravados nos metadados do próprio Parquet (`copylab.spans`), para o registro e os
+   dados mudarem na mesma troca de nome. Na interseção de janela congelada com trecho já gravado,
+   o gravado fica; o que diverge volta em `WriteOutcome` (`frozen_kept`, `frozen_rejected`, como
+   multiconjuntos de linhas inteiras) e é logado. A tabela `divergences`, com campo a campo, é de
+   T-023.
+2. **Hash de conteúdo, versão 1.** O design fixa o princípio; a codificação é minha e está na
+   docstring de `storage/hashing.py`: SHA-256; linhas ordenadas pelas chaves e, no desempate, pelas
+   demais colunas por nome; serialização por coluna, com os nomes das colunas, uma letra de
+   categoria de tipo, um byte de validade por linha e os valores (inteiros em 64 bits com sinal,
+   flutuantes em IEEE 754 com `-0.0` normalizado *antes* da ordenação e NaN canônico, textos com
+   prefixo de tamanho). Tipos fora disso são `DataError`. **Desempenho:** sem `numpy` (o design o
+   permite só em `sim` e `analytics`), a conversão é pela `array` da biblioteca padrão, em blocos
+   de 2²⁰ linhas. Para o livro, com centenas de milhões de linhas, pode ficar lento; medir em
+   T-012 ou T-072.
+3. **`test_architecture_time_boundary` segue a lista de permissão do design**, que é mais estrita
+   que o mínimo do prompt: `clock` só em `collector`, `ingestion` e `cli` (e não só "proibido nos
+   quatro de lógica"), e `asyncio` só no coletor, que está na mesma frase de §2.1.
+4. **Pureza da lógica.** Proibidos em `leader`, `selection`, `sim` e `analytics`: `storage`,
+   `ingestion`, `collector`, `clock`, `cli`; rede (`socket`, `ssl`, `http`, `urllib`, `httpx`,
+   `requests`, `websockets`, `aiohttp`, `asyncio`); arquivo (`os`, `pathlib`, `shutil`,
+   `tempfile`, `glob`, `fileinput`, `sqlite3`, `pickle`, `shelve`); `subprocess`; a chamada `open`
+   e qualquer identificador `read_*`, `scan_*`, `write_*` e `sink_*`. **`io` fica permitido**,
+   porque o gráfico devolve a imagem por `BytesIO`. Isolamento do armazenamento: fora de `storage`,
+   nada de `pyarrow`, `fastparquet`, `*_parquet*`, `data_dir` ou o texto `COPYLAB_DATA_DIR`;
+   `config` pode declarar `data_dir`.
+5. **Os três testes de arquitetura novos ficam num arquivo só**
+   (`test_architecture_boundaries.py`), com um detector que resolve import relativo
+   (`from .. import clock`) e olha identificadores e textos, além de imports. O de RNF-09 continua
+   no arquivo dele.
+6. **`polars` em `ports` só sob `TYPE_CHECKING`.** O protocolo não precisa dele em tempo de
+   execução, e o plano põe `polars` em T-004, depois de T-003. Ele continua também no grupo
+   `verify` (duplicata inofensiva).
+7. **`COPYLAB_DATA_DIR` sem default.** Sem a variável, abrir o armazenamento é `ConfigError`, em
+   vez de gravar num diretório escolhido por acaso.
+8. **Arquivos.** `<diretório>/<tabela>/<partes>.parquet`, zstd, temporário oculto na mesma pasta,
+   `fsync` do arquivo e da pasta. Nome de tabela pode ter `/` (`raw/leaderboard`); nenhuma parte
+   pode ser vazia, começar por ponto ou conter separador. As linhas ficam em ordem de instante,
+   estável dentro do mesmo instante.
+9. **`BoundedRepository`.** Levanta com `end > cutoff` (com janela semiaberta, `end == cutoff` lê
+   só instantes < T). `content_hash` é cortado pelo nome da tabela, e tabela fora de
+   `leaderboard`, `meta` e `roles` é cortada, inclusive uma que ainda não exista.
+10. **`timeutil`.** `iso` no formato `2026-09-01T00:00:00.123Z`. `parse_utc_date` só aceita
+    `AAAA-MM-DD`. `from_date` recusa o que não for exatamente uma data (um `datetime` é subclasse
+    de `date`). Erros de data são `ConfigError`, porque vêm de argumento ou do arquivo de
+    parâmetros.
+11. **`parametros.toml`.**
+    - Chaves em inglês, como o resto do código; comentários em português, citando a linha da spec.
+      Unidade no nome da chave; porcentagens como a spec as escreve (`_pct = 95.0`), e não como
+      fração.
+    - As janelas da Rota A estão como a spec as escreve (primeiro e último dia, e o número de dias),
+      e o carregador confere as contagens e converte em `[início, fim)`. A grade de capital traz K
+      por extenso (1/2/5) e é conferida contra a fórmula de D14.
+    - Δ em segundos, como na spec, com propriedades em ms.
+    - F3 não tem chave própria: usa `ingestion.max_fills_per_wallet` e
+      `reconciliation.pnl_tolerance_bps`.
+    - F1 é `"user"`, o valor que a API devolve para usuário comum (medido na verificação).
+    - A composição da grade de cenários é estrutura, não valor, e fica no código de T-052.
+    - Tipos estritos: texto, booleano ou float no lugar de inteiro são `ConfigError`; inteiro num
+      campo de dinheiro é aceito como float, com o mesmo hash. Chave desconhecida é erro.
+    - Hash: SHA-256 de um marcador e do JSON canônico do modelo (chaves em ordem, datas em `Ms`).
+12. **Regra de nomes da Binance.** Só o prefixo `k` minúsculo vira `1000` (`KAITO` não muda).
+    **Lista de exceções vazia**: os 27 ativos da verificação seguem a regra.
+
+## 4. Verificação
+
+| Critério | Estado |
+|---|---|
+| `make check` | ✅ 290 testes, `ruff` e `mypy --strict` limpos, piso de cobertura atingido (trivial: os quatro pacotes medidos ainda estão vazios) |
+| Testes de invariante novos com a mutação na docstring | ✅ os sete do Bloco 0 |
+| Commits por caminho, sem `git add .`/`-A`/`commit -a` | ✅ |
+| Nada do Bloco A em diante | ✅ nenhum cliente HTTP ou WebSocket, nenhum simulador |
+
+**O que deu errado no caminho.** O commit de T-003 foi feito uma vez com o `make lint` vermelho: o
+`grep` no fim do encadeamento engoliu o código de saída do `make`. O commit ainda não estava
+publicado; corrigi o teste e fiz `--amend`. A partir dali, todo commit ficou condicionado ao
+código de saída do `make check`.
+
+## 5. Em aberto — perguntas para a conversa de arquitetura
+
+1. **Limiares fora de §7.2 e §7.3.** O design diz que nenhum limiar aparece como literal no
+   código, e o prompt mandou pôr no arquivo só §7.2 e §7.3. Ficaram de fora, por isso: os 95% de
+   cobertura da medida de custo (RF-COL-05 CA-05.2), os 10 s de silêncio que fazem lacuna
+   (RF-COL-02 CA-02.2), o limite de peso de 1.000 por minuto (RF-ING-07 CA-07.1, "limite
+   configurado"), a página de 2.000 fills e a reserva de 120 de peso (design §3.3), os 45 dias da
+   projeção de disco e os 30 GB de RNF-10. Eles vão para `parametros.toml` (e entram no hash do
+   congelamento) ou para `Settings`? O primeiro a precisar disso é o coletor (10 s), em T-012.
+2. **F6, fronteiras.** "Entre 1 hora e 7 dias": inclusivo nas duas pontas? T-063 precisa saber.
+3. **Exceções de nome da Binance.** Lista vazia, porque a verificação não achou nenhuma. Confirmar.
+4. **`Phase 1 Tasks.md`** na raiz, não rastreado, cópia do plano entregue. Apago?
+5. **`README.md` está desatualizado desde a Fase 0** ("Estado atual — Fase 0", árvore com
+   "aguarda o design", "não há banco... decisão do design"). Não o reescrevi, porque não estava no
+   escopo. O DoD da Parte 1C pede o README final; vale um acerto antes disso?
+6. Herdados: a tolerância ao exit 5 em `make test-integration` e os templates com `quantlab`.
+
+## 6. Próximo passo
+
+Responder as perguntas de §5, em especial a 1, e então o Bloco A (coletor), para ligar o coletor
+(M-A) o quanto antes.
