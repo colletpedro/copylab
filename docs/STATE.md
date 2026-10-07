@@ -27,14 +27,14 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | Design da Fase 1 | ✅ 1.1 (1.0 aprovado no gate 2, 2026-10-07; 1.1 responde as perguntas do Bloco 0) |
 | Plano de tarefas | ✅ 0.1 aprovado (gate 3, 2026-10-07) |
 | Bloco 0 — base (T-001 a T-005) | ✅ implementado em 2026-10-07; `make check` e CI verdes |
-| Bloco A — coletor (T-010 a T-014) | 🟡 código pronto, `make check` e integração verdes; falta a seção do roteiro que depende do sistema operacional da máquina secundária |
-| M-A — coletor ligado | ⬜ aguarda o sistema operacional e o Pedro |
+| Bloco A — coletor (T-010 a T-014) | ✅ código pronto e adaptado ao Windows nativo; `make check`, integração e CI (inclusive Windows) verdes; roteiro para Windows escrito, com a seção de serviço ainda não executada numa máquina Windows |
+| M-A — coletor ligado | ⬜ com o Pedro, pelo roteiro |
 | Demais blocos (B a H) | ⬜ |
 
 ## Próximo
 
-**O sistema operacional da máquina secundária**, para completar a seção 6 de
-[`docs/coletor.md`](coletor.md), e então **M-A: o Pedro liga o coletor** pelo roteiro. No fim do
+**M-A: o Pedro liga o coletor** na máquina secundária (Windows), pelo roteiro
+[`docs/coletor.md`](coletor.md); a seção 6 (Agendador, `powercfg`) roda ali pela primeira vez. No fim do
 primeiro dia, `collect status` dá a projeção real de disco; se passar de 30 GB, volta para a conversa
 de arquitetura (risco 9 do design). Em paralelo, o Bloco B (ingestão).
 
@@ -64,8 +64,8 @@ de arquitetura (risco 9 do design). Em paralelo, o Bloco B (ingestão).
 
 ## Números
 
-- 348 testes unitários, todos offline, e 1 de integração (60 s do WebSocket real, fora da suíte
-  default e do CI).
+- 350 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 1 de integração (60 s
+  do WebSocket real, fora da suíte default e do CI).
 - Cobertura medida em `leader`, `selection`, `sim` e `analytics`: 0 linhas, porque os quatro
   ainda estão vazios. O 100% reportado continua trivial. `storage`, `ports`, `params` e
   `timeutil` não entram no piso (RNF-02), mas têm testes próprios.

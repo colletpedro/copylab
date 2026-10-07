@@ -817,7 +817,7 @@ contra o proxy. O coletor **não ficou rodando**: quem liga é o Pedro, pelo rot
 | T-011 | Reconexão com recuo dobrado (1 s até 60 s) e evento por desconexão | `test_disconnect_reconnects_and_records_gap_per_asset` (de ponta a ponta, com a compactação) |
 | T-012 | `collector/compact.py`: `bbo`, `book`, `trades` e `gaps` | `test_gaps_are_recorded_in_exchange_time`, `test_book_silence_over_10s_is_gap_and_trades_silence_is_not`, `test_trades_are_recorded_with_both_addresses_and_timestamps` |
 | T-013 | `collector/status.py` | `test_status_reports_gap_free_fraction_per_asset`, `test_latency_report_gives_median_p95_p99`, `test_status_projects_disk_usage_against_budget` |
-| T-014 | `config/collector_assets.toml` (27 ativos, conferidos contra a tabela de CA-05.4 e a lista do prompt), `collector/assets.py`, `collector/service.py`, comandos `collect`, `collect status`, `collect compact`, `docs/coletor.md` (sem a seção 6) | `test_collector_list_is_the_27_assets_of_the_verification` (BTC na lista, RF-SEL-08 CA-08.5 na parte do coletor) |
+| T-014 | `config/collector_assets.toml` (27 ativos, conferidos contra a tabela de CA-05.4 e a lista do prompt), `collector/assets.py`, `collector/service.py`, comandos `collect`, `collect status`, `collect compact`, `docs/coletor.md` para Windows | `test_collector_list_is_the_27_assets_of_the_verification` (BTC na lista, RF-SEL-08 CA-08.5 na parte do coletor) |
 
 Formato e limites conferidos na documentação oficial da Hyperliquid antes do código: assinatura
 `{"method":"subscribe","subscription":{...}}`; `l2Book` com `"fast": true` dá 5 níveis; `users` é
@@ -832,7 +832,7 @@ com `live_conn=None`): o cenário só tinha reconexão; entrou o caso de uma con
 Em ordem decrescente de impacto.
 
 1. **Partição das tabelas do livro pelo dia de recebimento.** O design diz "ativo, dia" sem dizer o
-   relógio. Perguntei três vezes, sem resposta. Segui o texto de §3.4 ("converte os segmentos fechados
+   relógio. Perguntei, sem resposta. Segui o texto de §3.4 ("converte os segmentos fechados
    de um dia nas tabelas"): os segmentos são horas de recebimento, então a partição é o dia deles. Assim a
    compactação é idempotente e a contagem bate linha a linha. Quem ler pelo instante da corretora (T-080)
    lê também a partição seguinte e filtra por `time_ms`. **Confirmar.**
@@ -864,7 +864,7 @@ Em ordem decrescente de impacto.
    fechamento da conexão são constantes com a fonte no comentário. A espera de 1 s entrou depois do
    primeiro teste do roteiro: o padrão de 10 s do `websockets` atrasava cada parada em 10 s, e numa
    reconexão viraria lacuna.
-9. **Um gravador por diretório de dados**, com trava `fcntl`. Compactação só de dias encerrados e sem
+9. **Um gravador por diretório de dados**, com trava (`fcntl`; `msvcrt` no Windows). Compactação só de dias encerrados e sem
    segmento aberto (um segmento deixado por queda é fechado pelo gravador ao reiniciar).
 10. **Projeção de disco**: bytes de segmentos e tabelas, divididos pelo tempo desde o primeiro evento
     gravado, vezes o horizonte. Latência por posto mais próximo, sem interpolação.
@@ -874,6 +874,18 @@ Em ordem decrescente de impacto.
     perdeu a tolerância a "nada coletado" e passou a usar `-s` para mostrar o log.
 12. **Saída dos comandos** pelo structlog, uma linha por ativo, como manda o CLAUDE.md. Erro de
     configuração ou de dado sai com código 1 e mensagem, sem traceback.
+13. **Windows nativo** (a resposta do Pedro, que chegou no fim da sessão). Quatro adaptações, sem mudar o
+    comportamento em macOS e Linux: trava com `msvcrt`; parada por `Ctrl+C` como cancelamento do laço,
+    porque o asyncio do Windows não aceita tratador de sinal (a parada fica registrada e os segmentos
+    fecham); pasta não sincronizada depois da troca de nome, que o Windows não permite; e troca de nome
+    retentada por até 2 s quando outro processo segura o arquivo (status, antivírus, indexador), com a
+    espera dada pelo coletor, porque `storage` não lê o relógio. `:` saiu dos nomes aceitos de segmento.
+    Encerrar a tarefa pelo Agendador mata o processo: perde-se o não descarregado (até 5 s), e a próxima
+    subida recupera o segmento.
+14. **Job de Windows no CI**, só com a suíte unitária: é o único lugar onde os caminhos acima rodam. Na
+    primeira execução ele achou três defeitos dos testes (queda simulada com o arquivo ainda aberto no
+    próprio processo; porta fechada, que no Windows demora ~2 s a recusar; logging escrevendo no stdout
+    fechado do `CliRunner`), todos corrigidos. A queda agora é de verdade, num processo filho.
 
 ## 4. Verificação
 
@@ -881,8 +893,8 @@ Em ordem decrescente de impacto.
 |---|---|
 | `make check` | ✅ 348 testes, `ruff` e `mypy --strict` limpos |
 | Integração (60 s de BTC na corretora real) | ✅ rodou duas vezes; a segunda com `-s`, só para ver os números (a primeira passou, mas o log ficou capturado). Mensagens: `bbo` 480, livro 110 (1,8/s, a assinatura rápida), negócios 72 (149 negócios), eventos 7. Nenhuma lacuna. Latência mediana dos negócios: 306 ms |
-| Roteiro seguido do zero | ✅ para as seções que não dependem do sistema: clone limpo, `make install`, `.env`, `collect --duration-seconds 120`, `collect status` (cobertura de 100% nos 27 ativos), `collect` parado por `SIGTERM` mandado ao `uv run` (parada limpa, código 0), `collect compact` (nada a fazer: o dia não fechou). Nenhum processo ficou rodando. ⬜ a seção 6 (manter de pé, suspensão, agendamento) não foi escrita |
-| CI | ver o fim desta seção |
+| Roteiro seguido do zero | 🟡 **em macOS, não em Windows**: não tenho uma máquina Windows. Segui, num clone limpo, a parte comum a todos os sistemas: instalar, `.env`, `collect --duration-seconds 120`, `collect status` (cobertura de 100% nos 27 ativos), `collect` parado por `SIGTERM` (parada limpa, código 0), `collect compact` (nada a fazer: o dia não fechou). Nenhum processo ficou rodando. **A seção 6 (Agendador de Tarefas, `powercfg`, compactação agendada) não foi executada por ninguém ainda**: o código dela roda na suíte do runner Windows, mas os comandos de PowerShell do roteiro, não |
+| CI | ✅ execução 37682403020, sobre `9553a15`: lint, tipos e testes; Windows; auditoria |
 
 **Disco: risco que o M-A precisa medir.** Dois minutos dos 27 ativos ocuparam 0,94 MB de segmentos gzip,
 o que projeta **28,5 GB em 45 dias**, contra um orçamento de 30 GB. Compactados numa cópia, os mesmos dados
@@ -892,10 +904,10 @@ inteiro, depois da primeira compactação: é a regra do M-A (passou de 30 GB, v
 
 ## 5. Em aberto — perguntas para a conversa de arquitetura
 
-1. **Sistema operacional da máquina secundária.** Perguntei quatro vezes nesta sessão, sem resposta. Sem
-   ele, a seção 6 de `docs/coletor.md` não foi escrita, e o coletor não tem como subir sozinho depois de um
-   reinício. Se for **Windows nativo**, o código precisa de adaptação (`fcntl` e sinais POSIX); macOS,
-   Linux e WSL rodam como está.
+1. **A seção 6 do roteiro nunca rodou num Windows.** O Pedro respondeu Windows no fim da sessão. O código
+   foi adaptado e passa no runner Windows, mas a tarefa do Agendador, o `powercfg` e a compactação agendada
+   precisam ser conferidos na máquina, na primeira vez que forem seguidos. Se algum comando falhar, é para
+   corrigir o roteiro antes de qualquer outra coisa.
 2. **Partição pelo dia de recebimento** (§3, item 1): confirmar ou mandar trocar antes do M-A, enquanto não
    há dado compactado.
 3. **Coluna `conn_ms`** (§3, item 2): o design §3.2 lista as colunas; esta é uma a mais. Vale uma linha no
@@ -908,10 +920,11 @@ inteiro, depois da primeira compactação: é a regra do M-A (passou de 30 GB, v
 
 ## 6. O que o Pedro precisa fazer para ligar o coletor
 
-1. Dizer qual é o sistema operacional da máquina secundária, para a seção 6 do roteiro.
-2. Na máquina secundária, seguir `docs/coletor.md` das seções 1 a 5: instalar `git` e `uv`, clonar,
-   `make install`, criar o `.env` com `COPYLAB_DATA_DIR` (caminho absoluto, 30 GB livres) e
+1. Na máquina secundária (Windows), seguir `docs/coletor.md` das seções 1 a 4: instalar Git e `uv`, clonar
+   em `C:\copylab`, `uv sync`, criar o `.env` com `COPYLAB_DATA_DIR=C:/copylab-dados` (30 GB livres) e
    `COPYLAB_ENV=prod`, rodar o teste de dois minutos e conferir o status.
-3. Com a seção 6 escrita: deixar `uv run copylab collect` subindo sozinho, impedir a suspensão e agendar
-   `uv run copylab collect compact` uma vez por dia, depois de 00:10 UTC.
-4. No fim do primeiro dia, rodar a compactação e o status, e anotar `projected_gb` (M-A).
+2. Seção 6, num PowerShell como administrador: registrar a tarefa `copylab-coletor` (sobe com a máquina,
+   volta se cair), desligar a suspensão com `powercfg` e registrar a tarefa `copylab-compactacao` (00:15
+   UTC). Conferir com `Get-ScheduledTaskInfo` e com o log em `C:\copylab-dados\logs\coletor.log`.
+3. No fim do primeiro dia, depois da primeira compactação, rodar `uv run copylab collect status` e anotar
+   `projected_gb` (M-A). Acima de 30 GB, volta para a conversa de arquitetura.
