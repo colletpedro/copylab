@@ -15,20 +15,16 @@ garante isso (RNF-09).
 
 ---
 
-## Estado atual — Fase 0 (fundação)
+## Estado atual
 
-Este repositório contém **apenas o esqueleto**: pacote, configuração, CI, convenções e
-templates de processo. Os subpacotes de domínio (`ingestion/`, `collector/`,
-`storage/`, `selection/`, `sim/`, `analytics/`) estão **vazios de propósito**.
+Fase 1 em implementação, pelo plano de tarefas aprovado. O que existe: a base (tempo,
+relógio, protocolo de leitura com corte, armazenamento em Parquet com hash de conteúdo,
+parâmetros pré-registrados em [`preregistro/parametros.toml`](preregistro/parametros.toml))
+e os scripts da verificação de dados. O que ainda não existe: ingestão, livro-razão do
+líder, seleção, simulador, métricas e relatórios. Nenhum resultado foi produzido.
 
-O projeto é spec-driven: nenhuma linha de implementação é escrita antes da spec
-correspondente passar pelos gates. Os requisitos da Fase 1 estão aprovados
-([`specs/00-plataforma/fase-1-requirements.md`](specs/00-plataforma/fase-1-requirements.md))
-e os ADRs 0001 a 0005 estão aceitos, mas o design ainda não existe. O próximo passo é a
-verificação de dados (§4.1 dos requisitos), que roda antes do design.
-
-O roadmap e o estado de cada gate estão em [`specs/README.md`](specs/README.md) e em
-[`docs/STATE.md`](docs/STATE.md).
+O estado de cada gate e o roadmap estão em [`specs/README.md`](specs/README.md); onde o
+trabalho está, em [`docs/STATE.md`](docs/STATE.md).
 
 ## Como rodar
 
