@@ -47,6 +47,25 @@ class Settings(BaseSettings):
         description="Diretório de dados (ADR-0006), fora do git. Só copylab.storage o "
         "usa; sem ele, abrir o armazenamento é ConfigError.",
     )
+    # Números que só mudam a operação, não o resultado do estudo (design 1.1 §3.9).
+    weight_limit_per_minute: int = Field(
+        default=1_000,
+        gt=0,
+        le=1_200,
+        description="Peso por minuto que a ingestão se permite na API de informação "
+        "(RF-ING-07 CA-07.1). O teto da corretora é 1.200 por IP (ADR-0001).",
+    )
+    disk_budget_gb: float = Field(
+        default=30.0,
+        gt=0,
+        description="Orçamento de disco da fase, em GB (RNF-10). O status do coletor "
+        "projeta o uso contra ele.",
+    )
+    disk_projection_days: int = Field(
+        default=45,
+        gt=0,
+        description="Horizonte, em dias, da projeção de disco do coletor (RF-COL-04 CA-04.2).",
+    )
 
     def __init__(self, **data: Any) -> None:
         try:

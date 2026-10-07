@@ -98,3 +98,19 @@ def test_get_settings_sees_this_tests_own_env_b(clean_env: pytest.MonkeyPatch) -
     """Metade 2 do par — ver docstring de `..._a`."""
     clean_env.setenv("COPYLAB_LOG_LEVEL", "ERROR")
     assert get_settings().log_level == "ERROR"
+
+
+@pytest.mark.unit
+def test_operation_numbers_have_the_design_defaults(settings: Settings) -> None:
+    """Design 1.1 §3.9: limite de peso 1.000, orçamento de 30 GB, projeção de 45 dias."""
+    assert settings.weight_limit_per_minute == 1_000
+    assert settings.disk_budget_gb == pytest.approx(30.0)
+    assert settings.disk_projection_days == 45
+
+
+@pytest.mark.unit
+def test_weight_limit_above_the_exchange_ceiling_is_refused(clean_env: pytest.MonkeyPatch) -> None:
+    """Acima de 1.200 por minuto a corretora derruba o IP (ADR-0001)."""
+    clean_env.setenv("COPYLAB_WEIGHT_LIMIT_PER_MINUTE", "1201")
+    with pytest.raises(ConfigError, match="COPYLAB_WEIGHT_LIMIT_PER_MINUTE"):
+        Settings(_env_file=None)
