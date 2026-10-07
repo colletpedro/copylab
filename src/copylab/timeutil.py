@@ -89,9 +89,10 @@ def from_date(d: date) -> Ms:
     """Meia-noite UTC da data ``d``, como o ``tomllib`` entrega datas.
 
     Raises:
-        ConfigError: se ``d`` for um ``datetime``. Um instante com hora ou fuso no
-            lugar de uma data seria convertido em silêncio para outra coisa.
+        ConfigError: se ``d`` não for exatamente uma data. Um ``datetime`` (subclasse de
+            ``date``) tem hora e talvez fuso, e seria convertido em silêncio para outra
+            coisa; um texto ou um número no lugar de uma data é erro de configuração.
     """
-    if isinstance(d, datetime):
-        raise ConfigError(f"Esperava uma data sem hora, recebi o instante {d!r}.")
+    if type(d) is not date:
+        raise ConfigError(f"Esperava uma data sem hora (AAAA-MM-DD), recebi {d!r}.")
     return day_start((d - _EPOCH_DATE).days)

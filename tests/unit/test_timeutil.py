@@ -71,10 +71,12 @@ def test_from_date_takes_the_date_that_toml_delivers() -> None:
 
 
 @pytest.mark.unit
-def test_from_date_refuses_an_instant_in_place_of_a_date() -> None:
-    """`datetime` é subclasse de `date`; aceitá-lo descartaria a hora em silêncio."""
+@pytest.mark.parametrize("value", [datetime(2026, 9, 1, 12, 0, tzinfo=UTC), "2026-09-01", 20_697])
+def test_from_date_refuses_anything_but_a_date(value: object) -> None:
+    """`datetime` é subclasse de `date`; aceitá-lo descartaria a hora em silêncio. Texto e
+    número no lugar de uma data do TOML também são erro de configuração."""
     with pytest.raises(ConfigError, match="sem hora"):
-        from_date(datetime(2026, 9, 1, 12, 0, tzinfo=UTC))
+        from_date(value)  # type: ignore[arg-type]  # o teste é justamente o tipo errado
 
 
 @pytest.mark.unit
