@@ -22,7 +22,7 @@ Antes da verificação de dados, a sugestão inicial de arquitetura era um Postg
 4. **Escrita atômica.** Toda tabela é escrita em arquivo temporário e trocada de nome ao fim.
 5. **Hash pelo conteúdo.** O hash de um conjunto de dados é calculado dos valores, em ordem canônica, e nunca dos bytes do arquivo.
 6. **Dado congelado não muda.** Linha dentro de uma janela que algum congelamento cobre nunca é reescrita. Uma coleta nova que divirja dela é registrada à parte.
-7. **Uma única porta.** Só `copylab.storage` conhece o diretório de dados e o formato. Livro-razão, seleção, simulador e analytics recebem dados já materializados.
+7. **Uma única porta.** Só `copylab.storage` conhece o diretório de dados e o formato. Livro-razão, seleção, simulador e analytics leem por um protocolo de leitura, sem conhecer arquivo nem diretório, e não gravam nada: devolvem objetos, texto ou bytes, e quem grava é a CLI.
 
 Arquivos de pré-registro, congelamentos e relatórios não são dados neste sentido: são texto, pequenos, e vão para o git.
 
