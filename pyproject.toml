@@ -130,13 +130,13 @@ markers = [
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
-# coverage — RNF-02: mínimo de 85%, com ramos, em seleção, simulador e analytics
+# coverage — RNF-02: mínimo de 85%, com ramos, em livro-razão, seleção, simulador e analytics
 # ─────────────────────────────────────────────────────────────────────────────
 [tool.coverage.run]
-# O piso vale só onde o erro custa dinheiro: a escolha de carteiras, a
-# simulação da cópia e a medição. Os demais pacotes não entram no cálculo de
-# propósito.
-source_pkgs = ["copylab.selection", "copylab.sim", "copylab.analytics"]
+# O piso vale só onde o erro custa dinheiro: o livro-razão do líder, a escolha
+# de carteiras, a simulação da cópia e a medição (RNF-02). Os demais pacotes não
+# entram no cálculo de propósito.
+source_pkgs = ["copylab.leader", "copylab.selection", "copylab.sim", "copylab.analytics"]
 branch = true
 
 [tool.coverage.report]

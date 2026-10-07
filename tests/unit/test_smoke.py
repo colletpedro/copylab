@@ -12,12 +12,19 @@ from typer.testing import CliRunner
 
 import copylab
 from copylab.cli import app
-from copylab.exceptions import ConfigError, CopylabError, DataError, SimulationError
+from copylab.exceptions import (
+    ConfigError,
+    CopylabError,
+    DataError,
+    LookaheadError,
+    SimulationError,
+)
 
 _DOMAIN_SUBPACKAGES = (
     "copylab.ingestion",
     "copylab.collector",
     "copylab.storage",
+    "copylab.leader",
     "copylab.selection",
     "copylab.sim",
     "copylab.analytics",
@@ -27,12 +34,12 @@ _DOMAIN_SUBPACKAGES = (
 @pytest.mark.unit
 def test_scaffold_imports_and_cli_answers(clean_env: pytest.MonkeyPatch) -> None:
     """O esqueleto da Fase 0 está de pé e coerente com a spec."""
-    # Os seis subpacotes de domínio existem e importam, ainda que vazios.
+    # Os sete subpacotes de domínio existem e importam.
     for name in _DOMAIN_SUBPACKAGES:
         assert importlib.import_module(name) is not None
 
     # A hierarquia de exceções tem uma raiz única.
-    for error in (DataError, ConfigError, SimulationError):
+    for error in (DataError, ConfigError, SimulationError, LookaheadError):
         assert issubclass(error, CopylabError)
 
     # O CLI sobe e o comando `version` reporta a versão do pacote.
