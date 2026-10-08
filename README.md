@@ -21,9 +21,10 @@ Fase 1 em implementação, pelo plano de tarefas aprovado. O que existe: a base 
 relógio, protocolo de leitura com corte, armazenamento em Parquet com hash de conteúdo,
 parâmetros pré-registrados em [`preregistro/parametros.toml`](preregistro/parametros.toml)),
 o coletor do livro e dos negócios (`copylab collect`, roteiro em
-[`docs/coletor.md`](docs/coletor.md)) e os scripts da verificação de dados. O que ainda não
-existe: ingestão, livro-razão do líder, seleção, simulador, métricas e relatórios. Nenhum
-resultado foi produzido.
+[`docs/coletor.md`](docs/coletor.md)), a ingestão da API e do proxy da Binance
+(`copylab ingest`, roteiro em [`docs/ingestao.md`](docs/ingestao.md)) e os scripts da
+verificação de dados. O que ainda não existe: livro-razão do líder, seleção (além do pool),
+simulador, métricas e relatórios. Nenhum resultado foi produzido.
 
 O estado de cada gate e o roadmap estão em [`specs/README.md`](specs/README.md); onde o
 trabalho está, em [`docs/STATE.md`](docs/STATE.md).

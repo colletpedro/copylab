@@ -928,3 +928,153 @@ inteiro, depois da primeira compactação: é a regra do M-A (passou de 30 GB, v
    UTC). Conferir com `Get-ScheduledTaskInfo` e com o log em `C:\copylab-dados\logs\coletor.log`.
 3. No fim do primeiro dia, depois da primeira compactação, rodar `uv run copylab collect status` e anotar
    `projected_gb` (M-A). Acima de 30 GB, volta para a conversa de arquitetura.
+
+---
+
+# HANDOFF — Design 1.2 e Bloco B, ingestão (prompt 08)
+
+**Data:** 2026-10-07 (commits de 2026-10-08 UTC)
+**Escopo:** Parte 0 (design 1.2, regra de leitura das tabelas do coletor, `AGENTS.md`) e Bloco B do
+plano (T-020 a T-027), com T-060 e a ordenação de ativos de T-061 adiantadas do Bloco F.
+**Fora do escopo, de propósito:** livro-razão, seleção além do pool e da ordenação, simulador,
+analytics, conferência do proxy contra os fills (resto de T-061). **A ingestão completa (M-B) não
+foi rodada:** é com o Pedro, pelo roteiro [`docs/ingestao.md`](docs/ingestao.md).
+
+## 1. Parte 0
+
+| Item | Feito |
+|---|---|
+| 1. Design 1.2 | A pasta veio como `entrega-08/` (com hífen), não `entrega_08/`. Copiada; diff só na linha de versão, em §3.2 e no histórico. Pasta removida. `specs/README.md` e `specs/CHANGELOG.md` atualizados |
+| 2. Leitura pelo instante da corretora | `storage/repository.py` (`ParquetRepository`): `bbo`, `book` e `trades` abrem as partições do dia anterior e do seguinte e filtram por `time_ms`; `gaps`, que tem uma partição por ativo, devolve as lacunas que se sobrepõem ao intervalo. Testes em `test_storage_repository.py`, com relógio de recebimento atrasado (a linha cai na partição do dia anterior) e adiantado (cai na seguinte) |
+| 3. `AGENTS.md` | Três linhas que mandam ler o `CLAUDE.md`. Versionado |
+| 4. `Capa GitHub LinkedIn.png` | **Não está na raiz**: nada a fazer, nada apagado |
+
+## 2. Bloco B
+
+| Tarefa | Entrega | Testes com nome do design |
+|---|---|---|
+| T-020 | `ingestion/budget.py` (`WeightBudget`), `ingestion/provider.py` (`HyperliquidInfo` sobre `httpx`), `ingestion/fake.py` (`FakeInfo`, `FakeArchive`); `httpx` no runtime | `test_rate_budget_never_exceeds_limit`, `test_rate_limited_response_backs_off_then_fails_explicitly` |
+| T-021 | `ingestion/snapshots.py`; `ParquetStore.create` | `test_leaderboard_snapshot_is_timestamped_hashed_and_never_overwritten`, `test_lot_size_is_stored_with_collection_instant` |
+| T-060 | `selection/pool.py` | `test_pool_sample_is_seeded_over_sorted_f2_addresses`, `test_pool_grows_in_blocks_until_20_eligibles_or_exhausted`, `test_pool_growth_depends_only_on_eligible_count` |
+| T-022 | `ingestion/fills.py` | `test_pagination_inclusive_start_dedupes_boundary_millisecond`, `test_wallet_over_fill_cap_stops_and_is_marked_incompatible`, `test_out_of_universe_fills_are_kept_and_flagged`, `test_fill_is_classified_by_instrument_kind`, `test_perp_fill_with_invalid_field_makes_wallet_ineligible`, `test_non_perp_fill_without_price_counts_zero_notional`, `test_result_records_ingestion_instants_and_content_hash`; e o dos 300 fills no mesmo milissegundo na fronteira entre páginas |
+| T-023 | Reingestão em `ingestion/fills.py`; `ParquetStore.append` | `test_reingesting_window_keeps_fill_count_and_hash`, `test_changed_fill_is_logged_and_changes_hash`, `test_frozen_fill_rows_are_never_rewritten_and_divergence_is_recorded` |
+| T-024 | `ingestion/funding.py` | `test_funding_record_is_floored_to_hour_and_missing_hour_fails` |
+| T-025 | `ingestion/proxy.py`, `ingestion/market.py`, `selection/assets.py` | `test_proxy_series_has_low_high_last_and_leaves_empty_seconds_absent`, `test_proxy_checksum_mismatch_fails`, `test_btc_is_always_collected_and_ingested` |
+| T-026 | `ingestion/roles.py` | `test_roles_are_stored_with_collection_instant` (sem nome no design) |
+| T-027 | `ingestion/guard.py`; comandos `ingest leaderboard`, `ingest fills`, `ingest market` | `test_evaluation_ingest_requires_freeze`, `test_market_ingest_of_evaluation_window_requires_freeze`, `test_route_b_selection_ingest_requires_route_a_freeze`, `test_missing_data_fails_with_actionable_message_and_exit_code`, `test_wallet_failure_does_not_abort_and_sets_exit_code` |
+
+T-022 e T-023 foram num commit só, declarado na mensagem: a reingestão é o caminho de escrita dos
+fills, e separar deixaria um commit que grava sem comparar. Os demais são um assunto por commit.
+
+**Testes do mapa de §8.2 que não entraram, e por quê.** `test_universe_is_reformed_when_pool_grows`
+(RF-SEL-07 CA-07.2) depende do universo, que é T-061. O teste de RF-ING-02 CA-02.5 com
+"makes_wallet_ineligible" prova a metade da ingestão (o fill é gravado com o campo nulo e contado);
+a inelegibilidade é F3, T-063.
+
+## 3. Decisões que tomei onde o design não decidia — revise
+
+Em ordem decrescente de impacto.
+
+1. **Percurso dos ativos candidatos — perguntei, sem resposta.** O design §3.3 diz "percorridos em
+   ordem decrescente de notional das candidatas, *enquanto* tiverem ao menos 2.000 fills"; RF-SEL-08
+   CA-08.1 (ii) toma os 20 de maior notional *entre os que cumprem (i)*, sem filtrar por fills, e
+   (iii) é outra condição. Parar no primeiro com menos de 2.000 fills deixaria de ver ativos que
+   estão nos 20; pular os de poucos fills poria no lugar o 21º ou o 25º. Segui a regra do cabeçalho do
+   próprio design (valem os requisitos): o percurso passa por todos os perpétuos do primeiro dex, em
+   ordem, até 20 cumprirem (i); dos que têm ao menos 2.000 fills, o proxy é baixado inteiro; dos
+   demais, (i) é conferida só pelos `.CHECKSUM` diários, sem baixar os arquivos. BTC sempre. Funding
+   só dos baixados. **Pede emenda de uma frase no design §3.3.**
+2. **Carteira acima de 20.000 fills: nada é gravado.** O design diz que ela "tem histórico parcial e
+   não entra na soma". Gravar os fills coletados declararia a janela inteira descrita, e ela não está.
+   A cobertura fica com `frequência incompatível` e `n_fills` igual ao que se coletou até parar
+   (mais de 20.000); a coleta para na página em que passa do teto.
+3. **Chave do multiconjunto da paginação: o conteúdo inteiro do fill**, em JSON canônico, e não um
+   subconjunto de campos. Dois fills que diferem em qualquer campo não se confundem; dois idênticos
+   genuínos são contados pela multiplicidade.
+4. **Mais de 2.000 fills num milissegundo** (uma página cheia sem nada novo): `DataError`, e a carteira
+   fica com `falha`, em vez de laço infinito. A verificação achou no máximo 256.
+5. **Campo ilegível vira nulo, e o fill é gravado.** Os 12 campos seguem as regras de "interpretável"
+   da verificação (`px`, `sz`, `tid`, `oid` positivos; `time` de 13 dígitos). Fill sem instante ou sem
+   ativo não tem como ser gravado: é falha da carteira. `twap_id` e `liquidated_user` (de
+   `liquidation.liquidatedUser`, em minúsculas) entram como colunas do design.
+6. **Reingestão.** Flag `--reingest` em `ingest fills` (o design não dizia como pedir). As
+   divergências pareiam fill antigo e novo por `time_ms` e `tid`; o que não tem par vira uma linha
+   `row_removed` ou `row_added`, com o fill inteiro em JSON; os valores ficam em texto, porque a coluna
+   serve a campos de tipos diferentes. O registro é `ParquetStore.append`, que não passa pela proteção
+   de janela congelada: é justamente lá que a divergência precisa entrar. Falha numa reingestão mantém
+   a cobertura anterior. Dentro de janela congelada, a escrita da cobertura também é retida pelo
+   armazenamento quando diverge, com aviso no log.
+7. **Pool do snapshot explícito.** Com mais de um snapshot gravado, `ingest fills` e `ingest market`
+   exigem `--snapshot <ms>`: retomar um dia depois de outro snapshot trocaria o pool sem aviso. O
+   `meta` usado é o do mesmo instante.
+8. **`ingest market` exige o pool completo.** Carteira sem cobertura ou com `falha` na janela faz o
+   comando parar com o `ingest fills --block k` a rodar. Sem isso, a ordem dos ativos sairia de um
+   pool parcial. `--pool-blocks N` diz quantos blocos formam as candidatas (default 1).
+9. **Funding:** consultas de até 500 horas (a reserva de 45 de peso fica exata), seguindo a resposta
+   até vir vazia ou chegar à última hora do bloco, porque o limite por resposta não é documentado.
+10. **Proxy:** arquivo bruto numa pasta temporária do sistema, fora do diretório de dados, apagada ao
+    fim de cada dia. Todo negócio tem de cair dentro do dia em milissegundos, ou é `DataError`. O
+    percurso para no primeiro dia sem arquivo (o ativo já falhou em (i)). Zip presente sem `.CHECKSUM`
+    é `DataError`.
+11. **Peso:** reserva antes e acerto depois; folga de 0,05 s em cada espera (sem ela, um teste achou
+    laço infinito com esperas de zero em ponto flutuante); `userRole` 60, `meta` 20, o `GET` do
+    leaderboard cobrado como 20 por segurança. 429 não esvazia o orçamento: espera com recuo
+    (`Settings`: 6 tentativas extras, 2 s dobrando até 60 s, tempo máximo de 60 s por requisição).
+12. **Guarda:** congelamento é a existência de `preregistro/rota-<a|b>.json`, o nome de RF-CLI-01; o
+    formato chega com T-066. Passada a guarda, a avaliação ainda é recusada com "chega com o Bloco G",
+    porque a lista de elegíveis vem do congelamento; a janela de avaliação da Rota B depende da
+    publicação (Bloco H).
+13. **Códigos de saída:** 1 para erro, recusa ou dado faltante; 2 para lista terminada com falha em
+    parte (carteira ou ativo).
+14. **Esquemas em `storage/tables.py`.** Só `storage` conhece o formato, e uma leitura sem partição
+    precisa devolver a tabela vazia com as colunas certas. A compactação do coletor passou a importar
+    os esquemas de lá, sem mudar nenhum.
+15. **`ParquetRepository`** implementa o protocolo inteiro. `content_hash` lê todas as partições da
+    tabela, com as partes da partição como colunas (`address`, `coin`, `day`); `trades` e o corpo
+    bruto do leaderboard ficam fora do protocolo, só no repositório concreto.
+16. **`roles` sem comando**: `ingest_roles` existe e grava um snapshot por instante; quem o chama é
+    `select` (T-066).
+17. **Endereços em minúsculas**, na borda do leaderboard: a API já os devolve assim, e o sistema de
+    arquivos do Windows não distingue maiúsculas.
+18. **Falsos em `src/copylab/ingestion/fake.py`**, e não em `tests/`, porque `tests/` não é pacote e
+    o `mypy` não resolveria o import entre arquivos de teste.
+19. **Ingestão sequencial.** A decisão 14 do design fala em um processo por carteira; aqui o gargalo é
+    o peso por IP, e processos paralelos precisariam dividir um orçamento. Não paralelizei.
+
+## 4. Verificação
+
+| Critério | Estado |
+|---|---|
+| `make check` | ✅ 439 testes unitários, `ruff` e `mypy --strict` limpos; `selection` com 100% de linhas e ramos |
+| Testes de invariante com a mutação na docstring | ✅ em todos os arquivos novos; todas as mutações registradas derrubaram ao menos um teste |
+| Integração (rede real), rodada uma vez | ✅ 15,7 s. Snapshot com 47.258 carteiras e 234 perpétuos no `meta` (corpo de 38,9 MB). Bloco 0 com 3.000 endereços. As 5 primeiras: 0, 1.883, 1.074, 0 e 606 fills, uma página cada, todas `ok`; por classe: 2.819 perpétuo, 720 HIP-3, 21 resultado, 3 spot; nenhum fill de perpétuo inválido, nenhum nome "outro". Proxy de BTC em 2026-07-15: zip de 13,6 MB, 1.107.089 negócios, 83.011 segundos com negócio, checksum conferido. Funding de BTC: 24 horas. 8 requisições, peso 342, pico de 389 em 60 s (reservas incluídas), nenhum 429, nenhuma consulta depois do corte |
+| CI | ver o fim desta seção no `git log` e o resumo do prompt; os pushes intermediários (T-020, T-025, T-027) passaram nos três jobs, inclusive Windows |
+
+**O que deu errado no caminho.** (1) A primeira versão do orçamento travava num laço com esperas de
+zero; o teste pegou, e entrou a folga de 0,05 s. (2) O commit de T-024 saiu uma vez com o lint
+vermelho, porque o `tail` do encadeamento engoliu o código de saída do `make` — o mesmo tropeço do
+Bloco 0. Ainda não estava publicado: corrigi e emendei. Daí em diante, todo commit ficou condicionado
+ao código de saída do `make check`. (3) Duas fixtures tinham a conta errada (o teto, que esqueci que a
+fronteira repete um fill por página; e um teste de leitura que gravava linha fora do dia declarado).
+Conferi à mão, corrigi as fixtures e não o código.
+
+## 5. Em aberto — perguntas para a conversa de arquitetura
+
+1. **Percurso dos ativos** (§3, item 1): confirmar a leitura e emendar o design §3.3.
+2. **Carteira acima do teto sem fills gravados** (§3, item 2): confirmar.
+3. **Janelas congeladas na CLI de ingestão.** Como no coletor, a CLI abre o armazenamento sem janelas
+   congeladas, porque ainda não existe leitor de congelamento. Quando T-066 existir, os comandos
+   `ingest` e `collect compact` precisam recebê-las.
+4. **Ingestão da janela de avaliação** (Bloco G): os comandos já recusam sem congelamento; com ele,
+   precisam da lista de elegíveis do arquivo de T-066.
+5. **Nome de ativo HIP-3 tem `:`**, que o Windows não aceita em nome de arquivo. Hoje nenhuma tabela é
+   particionada por ativo HIP-3 (proxy e funding são só do primeiro dex); se um dia for, precisa de
+   codificação.
+
+## 6. O que o Pedro precisa fazer (M-B)
+
+Na máquina de análise, pelo roteiro [`docs/ingestao.md`](docs/ingestao.md): `ingest leaderboard`
+(segundos; anotar o `snapshot_ms`), `ingest fills --route A --window selection --block 0` (**3 a 15
+horas**; planejar 15), `ingest market --route A --window selection` (**1 a 2 horas**) e acrescentar ao
+coletor os candidatos que o passo 3 listar. Total: **cerca de 16 horas, no pior caso**, quase tudo
+limitado pelo peso da API. Ao fim, copiar para cá os resumos dos passos 2 e 3.

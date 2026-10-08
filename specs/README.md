@@ -17,7 +17,7 @@ Cada transição é um gate explícito. Um gate reprovado volta para a etapa ant
 
 | Spec | Versão | Requisitos | Design | Tarefas | Implementada |
 |---|---|---|---|---|---|
-| `00-plataforma/fase-1` | 1.3 | ✅ 1.3 aprovada em 2026-10-07 (gate de design) | ✅ 1.2 (1.0 aprovado em 2026-10-07, gate 2; 1.1 responde as perguntas do Bloco 0; 1.2 incorpora as decisões do Bloco A) | ✅ 0.1 aprovado em 2026-10-07 (gate 3, `fase-1-tasks.md`) | 🟡 em andamento: Bloco 0 concluído; Bloco A (coletor) com código pronto, aguardando M-A |
+| `00-plataforma/fase-1` | 1.3 | ✅ 1.3 aprovada em 2026-10-07 (gate de design) | ✅ 1.2 (1.0 aprovado em 2026-10-07, gate 2; 1.1 responde as perguntas do Bloco 0; 1.2 incorpora as decisões do Bloco A) | ✅ 0.1 aprovado em 2026-10-07 (gate 3, `fase-1-tasks.md`) | 🟡 em andamento: Bloco 0 concluído; Bloco A (coletor) com código pronto, aguardando M-A; Bloco B (ingestão) com código pronto, aguardando M-B |
 
 ## ADRs
 
@@ -42,7 +42,7 @@ Uma **errata** datada, acrescentada ao fim do ADR, corrige um fato e as consequ�
 |---|---|---|
 | 0 | Fundação: repositório, CI e convenções herdadas do quantlab | concluída |
 | 1 — verificação | Confirmar em dado real o que a spec assume sobre a API (§4.1) | concluída: RF-VER-01 a RF-VER-05 executadas em 2026-10-06 (`docs/verificacao-de-dados.md`) |
-| 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | em implementação, pelo plano de tarefas (`fase-1-tasks.md`): Bloco 0 concluído; coletor pronto, ainda não ligado |
+| 1A | Rota A: ingestão, seleção, simulador e relatório de triagem sobre setembro de 2026. O coletor entra em operação nesta parte | em implementação, pelo plano de tarefas (`fase-1-tasks.md`): Bloco 0 concluído; coletor pronto, ainda não ligado; ingestão pronta, M-B não rodado |
 | 1B | Semana ao vivo: 7 dias de livro gravado e o gate do piloto | depende de 1A |
 | 1C | Veredito do estudo: 30 dias de avaliação prospectiva | depende de 1B |
 | 2 | Piloto com dinheiro real, limitado a US$ 50, com spec própria | bloqueada até o gate do piloto ser atingido |
