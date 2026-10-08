@@ -1048,7 +1048,7 @@ Em ordem decrescente de impacto.
 | `make check` | ✅ 439 testes unitários, `ruff` e `mypy --strict` limpos; `selection` com 100% de linhas e ramos |
 | Testes de invariante com a mutação na docstring | ✅ em todos os arquivos novos; todas as mutações registradas derrubaram ao menos um teste |
 | Integração (rede real), rodada uma vez | ✅ 15,7 s. Snapshot com 47.258 carteiras e 234 perpétuos no `meta` (corpo de 38,9 MB). Bloco 0 com 3.000 endereços. As 5 primeiras: 0, 1.883, 1.074, 0 e 606 fills, uma página cada, todas `ok`; por classe: 2.819 perpétuo, 720 HIP-3, 21 resultado, 3 spot; nenhum fill de perpétuo inválido, nenhum nome "outro". Proxy de BTC em 2026-07-15: zip de 13,6 MB, 1.107.089 negócios, 83.011 segundos com negócio, checksum conferido. Funding de BTC: 24 horas. 8 requisições, peso 342, pico de 389 em 60 s (reservas incluídas), nenhum 429, nenhuma consulta depois do corte |
-| CI | ver o fim desta seção no `git log` e o resumo do prompt; os pushes intermediários (T-020, T-025, T-027) passaram nos três jobs, inclusive Windows |
+| CI | ✅ execução 37717151268, sobre `e4d1cf1`: lint, tipos e testes; Windows; auditoria. A anterior (sobre o commit de T-027 e o de documentação) falhou no Windows: a mensagem da guarda trazia o caminho com barra invertida, que o log escapava. Corrigido em `e4d1cf1` |
 
 **O que deu errado no caminho.** (1) A primeira versão do orçamento travava num laço com esperas de
 zero; o teste pegou, e entrou a folga de 0,05 s. (2) O commit de T-024 saiu uma vez com o lint
