@@ -290,6 +290,20 @@ class ParquetStore:
             )
         return outcome
 
+    def create(self, table: str, partition: Partition, frame: pl.DataFrame) -> None:
+        """Grava uma partição nova, que nunca é sobrescrita (snapshots, ADR-0006 item 3).
+
+        Raises:
+            DataError: se a partição já existe; a gravada fica como estava.
+        """
+        path = self._path(table, partition)
+        if path.is_file():
+            raise DataError(
+                f"Partição {partition} de {table!r} já existe e não é sobrescrita: "
+                "um snapshot é gravado uma vez só."
+            )
+        self._replace(path, frame, ())
+
     def _replace(self, path: Path, frame: pl.DataFrame, spans: Sequence[Span]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         handle, temporary = tempfile.mkstemp(
