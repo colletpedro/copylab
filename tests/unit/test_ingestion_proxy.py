@@ -31,7 +31,7 @@ import polars as pl
 import pytest
 
 from copylab.exceptions import DataError
-from copylab.ingestion.fake import FakeInfo
+from copylab.ingestion.fake import FakeArchive, FakeInfo
 from copylab.ingestion.market import ingest_market
 from copylab.ingestion.proxy import (
     BINANCE_BASE,
@@ -60,31 +60,6 @@ def archive_bytes(content: bytes, name: str = "BTCUSDT-aggTrades-2026-07-01.csv"
     with zipfile.ZipFile(buffer, "w") as bundle:
         bundle.writestr(name, content)
     return buffer.getvalue()
-
-
-class FakeArchive:
-    """``DailyArchive`` em memória: ``files[(símbolo, dia)]`` é o zip; ausente é 404."""
-
-    def __init__(self, files: dict[tuple[str, int], bytes], wrong_sum: bool = False) -> None:
-        self.files = files
-        self.wrong_sum = wrong_sum
-        self.downloads: list[tuple[str, int, Path]] = []
-        self.sums: list[tuple[str, int]] = []
-
-    def checksum(self, symbol: str, day: int) -> str | None:
-        self.sums.append((symbol, day))
-        data = self.files.get((symbol, day))
-        if data is None:
-            return None
-        return "0" * 64 if self.wrong_sum else hashlib.sha256(data).hexdigest()
-
-    def download(self, symbol: str, day: int, dest: Path) -> bool:
-        self.downloads.append((symbol, day, dest))
-        data = self.files.get((symbol, day))
-        if data is None:
-            return False
-        dest.write_bytes(data)
-        return True
 
 
 #: Segundo S0: ids 1, 2, 3 com preços 100,0, 101,5 e 100,5; o arquivo traz o id 3 antes
