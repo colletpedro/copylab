@@ -55,6 +55,27 @@ class Settings(BaseSettings):
         description="Peso por minuto que a ingestão se permite na API de informação "
         "(RF-ING-07 CA-07.1). O teto da corretora é 1.200 por IP (ADR-0001).",
     )
+    api_max_retries: int = Field(
+        default=6,
+        ge=0,
+        description="Tentativas extras depois de limite excedido (HTTP 429), erro 5xx ou de "
+        "transporte, antes de a ingestão falhar explicitamente (RF-ING-07 CA-07.3).",
+    )
+    api_backoff_initial_seconds: float = Field(
+        default=2.0,
+        gt=0,
+        description="Primeira espera antes de repetir uma requisição; dobra a cada tentativa.",
+    )
+    api_backoff_max_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        description="Espera máxima entre tentativas de uma requisição.",
+    )
+    api_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        description="Tempo máximo de uma requisição HTTP da ingestão (API e Binance).",
+    )
     disk_budget_gb: float = Field(
         default=30.0,
         gt=0,
