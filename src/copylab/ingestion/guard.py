@@ -50,13 +50,14 @@ def check_ingest_allowed(route: Route, window: WindowName, root: Path = FREEZE_D
     if window == "evaluation" and not freeze_path(route, root).is_file():
         raise ConfigError(
             f"Recusado: a janela de avaliação da Rota {route} só é ingerida depois do "
-            f"congelamento dela, e {freeze_path(route, root)} não existe (RF-SEL-05 CA-05.4). "
+            f"congelamento dela, e {freeze_path(route, root).as_posix()} não existe "
+            "(RF-SEL-05 CA-05.4). "
             f"Rode `copylab select --route {route}` e commite o congelamento antes."
         )
     if route == "B" and window == "selection" and not freeze_path("A", root).is_file():
         raise ConfigError(
             "Recusado: a janela de seleção da Rota B contém a avaliação da Rota A e só é "
-            f"ingerida depois do congelamento da Rota A, e {freeze_path('A', root)} não "
+            f"ingerida depois do congelamento da Rota A, e {freeze_path('A', root).as_posix()} não "
             "existe (RF-SEL-05 CA-05.4)."
         )
 

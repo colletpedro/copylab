@@ -108,7 +108,7 @@ def test_evaluation_ingest_requires_freeze(env: tuple[Path, FakeInfo]) -> None:
     root, info = env
     result = run("fills", "--route", "A", "--window", "evaluation", "--params", PARAMS)
     assert result.exit_code == 1
-    assert "preregistro/rota-a.json" in result.output.replace("\\", "/")
+    assert "preregistro/rota-a.json" in result.output
     assert info.calls == []
 
     # Com o congelamento, a guarda deixa passar; o comando para adiante, porque a lista de
