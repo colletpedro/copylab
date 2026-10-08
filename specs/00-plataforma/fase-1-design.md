@@ -1,7 +1,7 @@
 # Fase 1 (estudo de simulação) — Design técnico
 
 **Status:** aprovado — gate 2 em 2026-10-07
-**Versão:** 1.1
+**Versão:** 1.2
 **Data:** 2026-10-07
 **Requisitos:** `fase-1-requirements.md`, versão 1.3
 **Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (proposto)
@@ -110,13 +110,15 @@ Ver ADR-0006. O diretório de dados vem de `COPYLAB_DATA_DIR` e fica fora do git
 | `funding` | ativo | `hour_ms`, `time_ms`, `rate`, `premium` | API |
 | `meta` | instante da coleta | `coin`, `sz_decimals` | API |
 | `proxy` | ativo, dia | `second`, `low`, `high`, `last`, `n_trades` | Binance |
-| `bbo` | ativo, dia | `time_ms`, `recv_ms`, `bid_px`, `bid_sz`, `ask_px`, `ask_sz` | coletor |
-| `book` | ativo, dia | `time_ms`, `recv_ms`, e 5 níveis de preço e tamanho por lado | coletor |
-| `trades` | ativo, dia | `time_ms`, `recv_ms`, `px`, `sz`, `side`, `buyer`, `seller`, `tid` | coletor |
+| `bbo` | ativo, dia de recebimento | `time_ms`, `recv_ms`, `conn_ms`, `bid_px`, `bid_sz`, `ask_px`, `ask_sz` | coletor |
+| `book` | ativo, dia de recebimento | `time_ms`, `recv_ms`, `conn_ms`, e 5 níveis de preço e tamanho por lado | coletor |
+| `trades` | ativo, dia de recebimento | `time_ms`, `recv_ms`, `conn_ms`, `px`, `sz`, `side`, `buyer`, `seller`, `tid` | coletor |
 | `gaps` | ativo | `start_ms`, `end_ms`, `reason` | coletor |
 | `divergences` | endereço | `time_ms`, `tid`, `field`, `old`, `new`, `detected_at_ms` | ingestão |
 
 `seq` é a posição do fill na ordem em que a API o devolveu para aquele endereço. Ela desempata fills do mesmo milissegundo (a verificação encontrou até 256) e é o que a conferência de continuidade percorre. `status`, em `coverage`, é `ok`, `frequência incompatível` ou `falha`.
+
+As tabelas do coletor são particionadas pelo dia UTC de recebimento, que é como os segmentos fecham, e `conn_ms` identifica a conexão que trouxe cada linha. A leitura por intervalo é sempre pelo instante da corretora. Como o relógio da máquina do coletor pode estar adiantado ou atrasado, toda leitura abre também a partição do dia anterior e a do seguinte e filtra por `time_ms`. O relógio local nunca decide a que instante um dado pertence.
 
 ```python
 class Repository(Protocol):
@@ -744,6 +746,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.2 | 2026-10-07 | Decisões do Bloco A incorporadas: tabelas do coletor particionadas pelo dia de recebimento, com leitura pelo instante da corretora nas partições vizinhas, e coluna `conn_ms` (§3.2) |
 | 1.1 | 2026-10-07 | Respostas às perguntas do Bloco 0. Regra de onde mora cada número (§3.9). Limiares inclusivos (§3.6). `numpy` permitido em `storage` para o hash de conteúdo (§2.2) |
 | 1.0 | 2026-10-07 | **Aprovado.** Uma precisão em relação à 0.2, vinda da conferência do Claude Code: `window open` recusa commit com data no futuro, o que fecha a brecha de datar o commit à mão (§4.4) |
 | 0.2 | 2026-10-07 | Resposta à leitura cruzada do Claude Code. Corrigido: nenhum dado da janela de avaliação é baixado antes do congelamento; `seq` entra no hash dos fills; a publicação da Rota B é o instante do commit; custos medidos uma vez por ativo, e não uma vez só; redução pelo teto mínima e proporcional; protocolo de leitura em `ports`; gráfico devolvido em bytes; lacunas no relógio da corretora. Definido: métricas de RF-ANA-01, composição da grade, campos do congelamento, arquivo de resultado, sorteio por SHA-256, quais ativos recebem proxy |

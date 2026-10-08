@@ -4,6 +4,10 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ## 2026-10-07
 
+### fase-1-design 1.2
+
+Incorpora duas decisões do Bloco A (§3.2). As tabelas do coletor (`bbo`, `book`, `trades`) são particionadas pelo dia UTC de **recebimento**, que é como os segmentos fecham, e ganham a coluna `conn_ms`, que identifica a conexão que trouxe cada linha. Regra nova: a leitura por intervalo é sempre pelo instante da corretora e abre também a partição do dia anterior e a do seguinte, filtrando por `time_ms`; o relógio local nunca decide a que instante um dado pertence.
+
 ### fase-1-design 1.1
 
 Respostas às perguntas do Bloco 0. **Onde mora cada número** (§3.9): o que muda o resultado do estudo fica em `parametros.toml` e entra no hash do congelamento, inclusive a cobertura mínima da medida de custo (95%) e o silêncio que faz lacuna (10 s); o que só muda a operação fica em `Settings` (limite de peso, orçamento e horizonte de disco); fato do protocolo da corretora é constante nomeada no provedor. **Limiares inclusivos** (§3.6), F6 com as duas pontas. **`numpy` permitido em `storage`**, para o hash de conteúdo (§2.2).
