@@ -33,6 +33,7 @@ from copylab.exceptions import DataError
 from copylab.logging import get_logger
 from copylab.storage import ParquetStore, Span
 from copylab.storage.segments import Record, SegmentRef, SegmentStore
+from copylab.storage.tables import BOOK_LEVELS, COLLECTOR_DAY_TABLES, GAPS, SCHEMAS
 from copylab.timeutil import Ms, day_start, iso, utc_day
 
 __all__ = [
@@ -49,43 +50,10 @@ __all__ = [
 
 log = get_logger(__name__)
 
-#: Níveis por lado do livro na assinatura rápida (documentação da Hyperliquid, l2Book
-#: com ``fast``: "5 levels").
-BOOK_LEVELS: Final = 5
-CHANNEL_TABLES: Final = ("bbo", "book", "trades")
-GAPS_TABLE: Final = "gaps"
+CHANNEL_TABLES: Final = COLLECTOR_DAY_TABLES
+GAPS_TABLE: Final = GAPS
 #: Trecho declarado na escrita da tabela de lacunas: ela é reescrita inteira a cada vez.
 _ALL_TIME: Final = Span(Ms(-(2**62)), Ms(2**62))
-
-_TIMES: Final = {"time_ms": pl.Int64, "recv_ms": pl.Int64, "conn_ms": pl.Int64}
-SCHEMAS: Final[dict[str, dict[str, Any]]] = {
-    "bbo": {
-        **_TIMES,
-        "bid_px": pl.Float64,
-        "bid_sz": pl.Float64,
-        "ask_px": pl.Float64,
-        "ask_sz": pl.Float64,
-    },
-    "book": {
-        **_TIMES,
-        **{
-            f"{side}_{kind}_{level}": pl.Float64
-            for side in ("bid", "ask")
-            for level in range(1, BOOK_LEVELS + 1)
-            for kind in ("px", "sz")
-        },
-    },
-    "trades": {
-        **_TIMES,
-        "px": pl.Float64,
-        "sz": pl.Float64,
-        "side": pl.String,
-        "buyer": pl.String,
-        "seller": pl.String,
-        "tid": pl.Int64,
-    },
-    GAPS_TABLE: {"start_ms": pl.Int64, "end_ms": pl.Int64, "reason": pl.String},
-}
 
 Row = dict[str, Any]
 

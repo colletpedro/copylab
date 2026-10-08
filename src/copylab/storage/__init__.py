@@ -2,15 +2,17 @@
 
 Único pacote que conhece o diretório de dados e o formato dos arquivos. Este é o núcleo
 genérico (T-004): diretório, escrita atômica, leitura por partição, hash de conteúdo,
-interface de escrita e janelas congeladas. As tabelas de cada origem chegam com a
-ingestão e o coletor.
+interface de escrita e janelas congeladas; os esquemas das tabelas (``tables``) e a leitura
+por janela que implementa ``copylab.ports.Repository`` (``repository``).
 """
 
 from copylab.storage.files import ParquetStore, Partition, WriteOutcome, Writer
 from copylab.storage.hashing import content_hash
+from copylab.storage.repository import ParquetRepository
 from copylab.storage.spans import Span, intersect, normalize
 
 __all__ = [
+    "ParquetRepository",
     "ParquetStore",
     "Partition",
     "Span",
