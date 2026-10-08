@@ -40,7 +40,7 @@ from copylab.logging import get_logger
 from copylab.storage.spans import Span, intersect, normalize
 from copylab.timeutil import Ms, iso
 
-__all__ = ["ParquetStore", "Partition", "WriteOutcome", "Writer"]
+__all__ = ["ParquetStore", "Partition", "WriteOutcome", "Writer", "multiset_difference"]
 
 log = get_logger(__name__)
 
@@ -115,10 +115,13 @@ def _row_key(row: tuple[object, ...]) -> tuple[object, ...]:
     return tuple(_cell_key(value) for value in row)
 
 
-def _multiset_difference(
+def multiset_difference(
     left: pl.DataFrame, right: pl.DataFrame
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """Linhas só de ``left`` e linhas só de ``right``, contando repetições."""
+    """Linhas só de ``left`` e linhas só de ``right``, contando repetições.
+
+    NaN é igual a NaN e -0.0 a 0.0. As linhas saem na ordem em que estavam.
+    """
     left_rows, right_rows = left.rows(), right.rows()
     common = Counter(map(_row_key, left_rows)) & Counter(map(_row_key, right_rows))
 
@@ -267,7 +270,7 @@ class ParquetStore:
             protected = intersect(intersect([span], self._frozen), collected)
             in_protected = _in_spans(when, protected)
             stored_protected = stored.filter(in_protected)
-            kept, rejected = _multiset_difference(stored_protected, frame.filter(in_protected))
+            kept, rejected = multiset_difference(stored_protected, frame.filter(in_protected))
             result = pl.concat(
                 [
                     stored.filter(~_in_spans(when, [span])),
@@ -303,6 +306,28 @@ class ParquetStore:
                 "um snapshot é gravado uma vez só."
             )
         self._replace(path, frame, ())
+
+    def append(self, table: str, partition: Partition, frame: pl.DataFrame) -> int:
+        """Acrescenta linhas a um registro que só cresce, como ``divergences``.
+
+        As linhas gravadas nunca mudam, e a escrita não passa pela proteção de janela
+        congelada: um registro de divergências precisa aceitar justamente as que caem
+        dentro de uma janela congelada. Devolve o total de linhas depois da escrita.
+
+        Raises:
+            DataError: esquema diferente do gravado.
+        """
+        path = self._path(table, partition)
+        if path.is_file():
+            stored = pl.read_parquet(path)
+            if stored.schema != frame.schema:
+                raise DataError(
+                    f"Esquema novo de {table!r} {partition} difere do gravado: "
+                    f"{dict(frame.schema)} contra {dict(stored.schema)}."
+                )
+            frame = pl.concat([stored, frame])
+        self._replace(path, frame, ())
+        return frame.height
 
     def _replace(self, path: Path, frame: pl.DataFrame, spans: Sequence[Span]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

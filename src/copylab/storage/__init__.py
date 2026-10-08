@@ -6,7 +6,13 @@ interface de escrita e janelas congeladas; os esquemas das tabelas (``tables``) 
 por janela que implementa ``copylab.ports.Repository`` (``repository``).
 """
 
-from copylab.storage.files import ParquetStore, Partition, WriteOutcome, Writer
+from copylab.storage.files import (
+    ParquetStore,
+    Partition,
+    WriteOutcome,
+    Writer,
+    multiset_difference,
+)
 from copylab.storage.hashing import content_hash
 from copylab.storage.repository import ParquetRepository
 from copylab.storage.spans import Span, intersect, normalize
@@ -20,5 +26,6 @@ __all__ = [
     "Writer",
     "content_hash",
     "intersect",
+    "multiset_difference",
     "normalize",
 ]
