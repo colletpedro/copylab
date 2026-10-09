@@ -1078,3 +1078,47 @@ Na máquina de análise, pelo roteiro [`docs/ingestao.md`](docs/ingestao.md): `i
 horas**; planejar 15), `ingest market --route A --window selection` (**1 a 2 horas**) e acrescentar ao
 coletor os candidatos que o passo 3 listar. Total: **cerca de 16 horas, no pior caso**, quase tudo
 limitado pelo peso da API. Ao fim, copiar para cá os resumos dos passos 2 e 3.
+
+
+---
+
+# HANDOFF — Resultado do M-B e BNB/TAO no coletor (prompt 10)
+
+**Data:** 2026-10-09
+
+## 1. M-B: ingestão do pool da Rota A concluída
+
+`snapshot_ms=1791482136751`.
+
+| Passo | Resultado |
+|---|---|
+| Fills, bloco 0 | 3.000 carteiras: **2.972 `ok`**, **28 `frequência incompatível`**, 0 falhas. 3.581.682 fills. 0 fills de perpétuo com campo inválido, 0 divergências, `other_coins` vazio, 317 fills com notional zero. 17.437 s |
+| Mercado | 21 ativos visitados; **20 cumprem (i) e (ii) e têm proxy**: BTC, ETH, HYPE, SOL, ZEC, LIT, PUMP, XRP, NEAR, ENA, XMR, AAVE, DOGE, FARTCOIN, UNI, BNB, TAO, VVV, TRUMP, LINK. 0 falhas. 4.961 s |
+| Disco | 422 MB em `~/copylab-dados` |
+
+## 2. BNB e TAO no coletor
+
+Dos 20, só BNB e TAO não estavam em `config/collector_assets.toml`. Entraram ao fim da lista
+(sem remover nenhum; agora são 29), porque a condição (v) exige meio-spread medido em 3 dias UTC
+completos de gravação. Nomes conferidos no snapshot de meta `1791482136751` (perpétuos do primeiro
+dex, sem prefixo, `sz_decimals` 3), sem chamar a API. O teste da lista
+(`tests/unit/test_cli_collect.py`) foi atualizado junto, senão o CI cairia.
+
+**O coletor precisa ser reiniciado** para ler a lista nova (decisão 12). Os dois só contam como
+gravando depois disso; o prazo é antes das 00:00 UTC de 2026-10-10.
+
+## 3. Branch `ops/coletor-windows`
+
+Mudava só `docs/coletor.md` (correção da seção 6 do roteiro, após o teste no Windows). Entrou em
+`main` por merge.
+
+## 4. Próximo marco: M-C, medida de custo
+
+Pode rodar depois de 3 dias UTC completos de gravação de **todos** os 20. Para BNB e TAO, isso é a
+partir de **2026-10-13 00:00 UTC**, se começarem a gravar antes da virada de 2026-10-09 para 10.
+
+## 5. Observação de ambiente (não é da spec)
+
+Na máquina de desenvolvimento, `tests/unit/test_cli_collect.py::test_missing_data_dir_fails_with_actionable_message`
+falha se existir um `.env` com `COPYLAB_DATA_DIR` na raiz do clone; passa sem ele (e no CI). Já falhava
+antes desta mudança. Nenhuma correção feita aqui.

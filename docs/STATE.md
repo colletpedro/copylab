@@ -15,7 +15,7 @@ respondeu as perguntas do Bloco 0, e o Bloco A (coletor, T-010 a T-014) foi impl
 contra a corretora real, mas ainda não está ligado na máquina secundária (marco M-A). Na mesma
 data, o design 1.2 incorporou as decisões do Bloco A, e o Bloco B (ingestão, T-020 a T-027, mais
 T-060 e a ordenação de ativos de T-061, adiantadas do Bloco F) foi implementado e testado contra a
-API real em escala pequena; a ingestão completa (marco M-B) é com o Pedro.** O repositório está publicado em
+API real em escala pequena; a ingestão completa (marco M-B) foi rodada em 2026-10-09.** O repositório está publicado em
 `https://github.com/colletpedro/copylab`.
 Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
@@ -34,17 +34,21 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | M-A — coletor ligado | ⬜ com o Pedro, pelo roteiro |
 | Bloco B — ingestão (T-020 a T-027) | ✅ código pronto; `make check` verde; integração (5 carteiras, 1 dia de proxy) rodada uma vez contra a API real |
 | T-060 (pool) e ordenação de ativos de T-061 | ✅ adiantadas do Bloco F, em `selection` |
-| M-B — ingestão do pool da Rota A | ⬜ com o Pedro, pelo roteiro [`docs/ingestao.md`](ingestao.md) |
+| M-B — ingestão do pool da Rota A | ✅ concluído (2026-10-09), `snapshot_ms=1791482136751`: 3.000 carteiras (2.972 `ok`, 28 `frequência incompatível`, 0 falhas), 3.581.682 fills; 20 ativos cumprem (i) e (ii), todos com proxy; 422 MB em disco |
+| M-C — medida de custo | ⬜ depois de 3 dias UTC completos de gravação dos 20 ativos (BNB e TAO: a partir de 2026-10-13 00:00 UTC) |
 | Demais blocos (C a H) | ⬜ |
 
 ## Próximo
 
 **M-A: o Pedro liga o coletor** na máquina secundária (Windows), pelo roteiro
 [`docs/coletor.md`](coletor.md); no fim do primeiro dia, `collect status` dá a projeção real de disco.
-**M-B: o Pedro roda a ingestão** na máquina de análise, pelo roteiro [`docs/ingestao.md`](ingestao.md):
-snapshot, fills do bloco 0 (3 a 15 horas), proxy e funding dos candidatos (1 a 2 horas), e os
-candidatos que faltarem entram na lista do coletor. Em paralelo, os Blocos C, D e E. Antes, as
-perguntas de §5 do HANDOFF do prompt 08, em especial a do percurso dos ativos.
+**M-B concluído** (2026-10-09): fills do bloco 0 (3.000 carteiras: 2.972 `ok`, 28 `frequência
+incompatível`, 0 falhas; 3.581.682 fills) e proxy dos 20 ativos que cumprem (i) e (ii): BTC, ETH, HYPE,
+SOL, ZEC, LIT, PUMP, XRP, NEAR, ENA, XMR, AAVE, DOGE, FARTCOIN, UNI, BNB, TAO, VVV, TRUMP, LINK.
+BNB e TAO entraram na lista do coletor (reiniciar o coletor); detalhes no fim do `HANDOFF.md`.
+**M-C, medida de custo:** pode rodar depois de 3 dias UTC completos de gravação dos 20; para BNB e
+TAO, a partir de 2026-10-13 00:00 UTC, se começarem a gravar antes da virada de 2026-10-10. Em
+paralelo, os Blocos C, D e E.
 
 ## O que existe no código
 
