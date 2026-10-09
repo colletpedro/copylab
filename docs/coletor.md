@@ -28,8 +28,10 @@ são exemplos: troque os dois em todo o roteiro se usar outros.
   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
 
-  Feche e abra o terminal depois, para o `uv` entrar no `PATH`. Ele fica em
-  `%USERPROFILE%\.local\bin\uv.exe`.
+  Feche e abra o terminal depois, para o `uv` entrar no `PATH`. Com esse instalador ele fica em
+  `%USERPROFILE%\.local\bin\uv.exe`; instalado por `winget install --id astral-sh.uv -e`, fica em
+  `%LOCALAPPDATA%\Microsoft\WinGet\Packages\astral-sh.uv_*\uv.exe`. As tarefas da seção 6 descobrem o
+  caminho real com `(Get-Command uv).Source`, então funcionam nos dois casos.
 - **Disco:** pelo menos 30 GB livres no volume dos dados (RNF-10).
 - **Relógio sincronizado.** Em Configurações > Hora e idioma > Data e hora: "Definir horário
   automaticamente" ligado, e "Sincronizar agora". O instante de recebimento vem do relógio da
@@ -101,16 +103,29 @@ Num PowerShell **como administrador**, dentro de `C:\copylab`.
 
 ### 6.1 O coletor como tarefa que sobe com a máquina
 
-A tarefa sobe na inicialização, sem precisar de login, e volta a cada minuto se o processo cair.
+A tarefa sobe na inicialização, sem precisar de login, e um segundo gatilho a dispara a cada minuto.
+Com `-MultipleInstances IgnoreNew`, o disparo é ignorado enquanto o coletor está de pé e religa o
+processo se ele caiu.
+
+> **Não use `-RestartCount`/`-RestartInterval` para isso.** Medido no Windows 11: matar o processo à
+> força deixou a tarefa em `Ready` (`LastTaskResult` 1) por mais de 2 minutos, sem reiniciar, mesmo
+> com `-RestartCount 999`. O reinício por falha do Agendador não cobre processo encerrado. Com o
+> gatilho repetitivo abaixo, o coletor voltou em 53 s.
 
 ```powershell
-$acao = New-ScheduledTaskAction -Execute "cmd.exe" -Argument '/c cd /d C:\copylab && "%USERPROFILE%\.local\bin\uv.exe" run copylab collect >> C:\copylab-dados\logs\coletor.log 2>&1'
-$gatilho = New-ScheduledTaskTrigger -AtStartup
+$uv = (Get-Command uv).Source
+$acao = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c cd /d C:\copylab && `"$uv`" run copylab collect >> C:\copylab-dados\logs\coletor.log 2>&1"
+$gatilhoBoot = New-ScheduledTaskTrigger -AtStartup
+$gatilhoRepete = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
 $quem = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U
-$regras = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
-Register-ScheduledTask -TaskName "copylab-coletor" -Action $acao -Trigger $gatilho -Principal $quem -Settings $regras
+$regras = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
+Register-ScheduledTask -TaskName "copylab-coletor" -Action $acao -Trigger @($gatilhoBoot, $gatilhoRepete) -Principal $quem -Settings $regras
 Start-ScheduledTask -TaskName "copylab-coletor"
 ```
+
+O processo da tarefa pertence a outro token: um terminal comum recebe "Acesso negado" ao tentar
+encerrá-lo. Para testar a queda, use um PowerShell como administrador:
+`taskkill /F /T /PID <pid do uv>`.
 
 Conferir que está rodando e ver o log:
 
@@ -128,11 +143,22 @@ Na tomada, a máquina não suspende, não hiberna e não desliga o disco:
 powercfg /change standby-timeout-ac 0; powercfg /change hibernate-timeout-ac 0; powercfg /change disk-timeout-ac 0
 ```
 
-Se for um notebook, fechar a tampa também não pode suspender:
+Se for um notebook, fechar a tampa e apertar o botão de energia também não podem suspender. Na
+máquina testada, `powercfg /q` com o apelido `LIDACTION` não devolveu nada; os GUIDs abaixo foram
+aceitos pelo `powercfg` (saída 0) sem depender do apelido:
 
 ```powershell
-powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0; powercfg /setactive SCHEME_CURRENT
+$b = '4f971e89-eebd-4455-a8de-9e59040e7347'
+powercfg /setacvalueindex SCHEME_CURRENT $b 5ca83367-6e45-459f-a27b-476b1d01c936 0   # tampa
+powercfg /setacvalueindex SCHEME_CURRENT $b 7648efa3-dd9c-4e3e-b566-50f929386280 0   # botão de energia
+powercfg /setactive SCHEME_CURRENT
 ```
+
+**Este passo não é opcional em notebook com "espera moderna"** (`powercfg /a` lista "Espera (S0
+Ocioso com Baixo Consumo de Energia)"). Medido: com `standby-timeout-ac` em 0, a máquina entrou em
+espera mesmo assim, o coletor ficou congelado por horas e a cobertura caiu para 2,3% em 11 horas
+(`Get-WinEvent -LogName System`, eventos 506/507 do Kernel-Power, mostram quando dormiu e acordou).
+Depois de aplicar, confira no status (seção 8) que `gaps` para de crescer.
 
 O Windows Update ainda reinicia a máquina de vez em quando. Em Configurações > Windows Update >
 Opções avançadas, ajuste o "Horário ativo" para reduzir isso. Um reinício vira uma lacuna registrada,
@@ -143,7 +169,8 @@ e a tarefa da seção 6.1 religa o coletor na subida.
 O horário é calculado em UTC e convertido para o fuso da máquina (em Brasília, 21:15):
 
 ```powershell
-$acao = New-ScheduledTaskAction -Execute "cmd.exe" -Argument '/c cd /d C:\copylab && "%USERPROFILE%\.local\bin\uv.exe" run copylab collect compact >> C:\copylab-dados\logs\compactacao.log 2>&1'
+$uv = (Get-Command uv).Source
+$acao = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c cd /d C:\copylab && `"$uv`" run copylab collect compact >> C:\copylab-dados\logs\compactacao.log 2>&1"
 $hora = (Get-Date).ToUniversalTime().Date.AddMinutes(15).ToLocalTime()
 $gatilho = New-ScheduledTaskTrigger -Daily -At $hora
 $quem = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U
