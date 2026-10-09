@@ -31,14 +31,15 @@ BOOK = (
 
 
 @pytest.mark.unit
-def test_collector_list_is_the_27_assets_of_the_verification() -> None:
+def test_collector_list_is_the_27_of_the_verification_plus_the_route_a_candidates() -> None:
     """RF-SEL-08 CA-08.5 na parte do coletor: BTC está na lista. Os 27 são os da tabela de
-    RF-VER-05 CA-05.4 com equivalente na Binance, na ordem dela."""
+    RF-VER-05 CA-05.4 com equivalente na Binance, na ordem dela. BNB e TAO,
+    candidatos da Rota A que o coletor não gravava, vêm ao fim."""
     coins = load_assets(REPO_ROOT / DEFAULT_ASSETS_PATH)
     assert coins == (
         "HYPE", "BTC", "ETH", "ZEC", "PUMP", "SOL", "LIT", "ENA", "INJ", "DOGE",
         "ASTER", "TRUMP", "PENGU", "VVV", "AAVE", "FARTCOIN", "XRP", "NEAR", "ADA",
-        "XMR", "UNI", "kBONK", "SYRUP", "WLD", "kPEPE", "LINK", "AVAX",
+        "XMR", "UNI", "kBONK", "SYRUP", "WLD", "kPEPE", "LINK", "AVAX", "BNB", "TAO",
     )  # fmt: skip
     assert "BTC" in coins
 
