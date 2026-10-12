@@ -7,7 +7,8 @@ sobre a série por segundo da Binance. A da Rota B (``BookSource``) é do Bloco 
 ``available_from`` devolve só um instante, e ``ladder`` e ``mark`` levantam
 :class:`~copylab.exceptions.LookaheadError` para um instante além do cursor. A fonte pode
 ler, ao executar em ``tau``, o resto do segundo de ``tau`` (ADR-0003), e ``horizon`` diz até
-onde ela já leu: é daí em diante que o teste de mutação altera os preços.
+onde ela já leu (a pergunta ``available_from`` sobre um instante que já chegou conta como leitura
+do segundo dele): é daí em diante que o teste de mutação altera os preços.
 """
 
 from bisect import bisect_left
@@ -99,6 +100,11 @@ class _BoundProxy:
         if series is None:
             return None
         second = second_of(t)
+        if t <= self._cursor.now:
+            # Perguntar se há negócio no segundo de um instante que já chegou lê o resto desse
+            # segundo, como a escada de execução: o horizonte avança até ele. Instante futuro,
+            # perguntado só para saber quando acordar, não consome nada.
+            self._horizon = Ms(max(self._horizon, second * MS_PER_SECOND))
         index = bisect_left(series.seconds, second)
         if index == len(series.seconds):
             return None

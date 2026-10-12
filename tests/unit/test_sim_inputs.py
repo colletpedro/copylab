@@ -219,6 +219,24 @@ def test_horizon_is_the_start_of_the_most_advanced_second_read() -> None:
 
 
 @pytest.mark.unit
+def test_asking_availability_of_an_instant_that_arrived_reads_its_second() -> None:
+    """Perguntar `available_from` por um instante que já chegou lê o resto do segundo dele (como
+    a escada) e move o horizonte: 101.000 depois de perguntar por 101.500 com o cursor em
+    101.500. Perguntar por um instante futuro, só para saber quando acordar, não move nada.
+
+    Mutação registrada: tirar a atualização do horizonte em `available_from` faz o primeiro
+    trecho cair, e o teste de aceitação perde o consumo da pergunta (cai com `c` colado em
+    evento, onde a redução do teto depende da existência de negócio no segundo).
+    """
+    cursor = Cursor(Ms(101_500))
+    prices = ProxySource(BARS).bind(cursor.view())
+    assert prices.available_from("BTC", Ms(103_500)) == 103_500  # futuro: não consome
+    assert prices.horizon() < 0
+    assert prices.available_from("BTC", Ms(101_500)) == 101_500
+    assert prices.horizon() == 101_000
+
+
+@pytest.mark.unit
 def test_proxy_bars_must_be_in_strict_order() -> None:
     with pytest.raises(DataError, match="ordem estrita"):
         ProxySource({"BTC": [ProxyBar(5, 1.0, 1.0, 1.0), ProxyBar(5, 1.0, 1.0, 1.0)]})
