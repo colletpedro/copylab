@@ -1,7 +1,7 @@
 # Fase 1 (estudo de simulação) — Design técnico
 
 **Status:** aprovado — gate 2 em 2026-10-07
-**Versão:** 1.2
+**Versão:** 1.3
 **Data:** 2026-10-07
 **Requisitos:** `fase-1-requirements.md`, versão 1.3
 **Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (proposto)
@@ -180,7 +180,7 @@ O relógio e a espera são injetados, então o orçamento é testável sem tempo
 
 **Preço proxy** (RF-ING-06). Para cada ativo e dia: baixa o arquivo de negócios agregados e o `.CHECKSUM`, confere, e reduz a uma linha por segundo com mínimo, máximo, último e contagem. O arquivo bruto é apagado em seguida. O mapa de nomes entre as corretoras (por exemplo `kPEPE` e `1000PEPEUSDT`) fica no arquivo de parâmetros, e a condição de nível de CA-06.3 é o que denuncia um mapa ou uma escala errada.
 
-**Quais ativos recebem proxy.** Os perpétuos do primeiro dex são percorridos em ordem decrescente de notional das candidatas, enquanto tiverem ao menos 2.000 fills. Para cada um, o nome na Binance vem da regra do arquivo de parâmetros: o mesmo nome com `USDT`, o prefixo `k` trocado por `1000`, e as exceções listadas. A condição (i) do universo é conferida baixando: se falta o arquivo de algum dia da janela, o ativo falha nela e é reportado. A busca para quando 20 ativos a cumprem. BTC entra sempre.
+**Quais ativos recebem proxy.** Os perpétuos do primeiro dex são percorridos em ordem decrescente de notional das candidatas, sem olhar o número de fills. Para cada um, o nome na Binance vem da regra do arquivo de parâmetros: o mesmo nome com `USDT`, o prefixo `k` trocado por `1000`, e as exceções listadas. A condição (i) do universo é conferida pela existência do arquivo de cada dia da janela: se falta algum, o ativo falha nela e é reportado. A busca para quando 20 ativos a cumprem, e esses são os 20 da condição (ii). O proxy completo só é baixado dos que, entre eles, têm ao menos 2.000 fills, porque os demais já falham na condição (iii). BTC entra sempre.
 
 ### 3.4 Coletor (`copylab.collector`)
 
@@ -746,6 +746,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.3 | 2026-10-08 | O percurso dos ativos candidatos segue RF-SEL-08 (ii): os 20 de maior notional entre os que têm equivalente na Binance, sem filtrar por fills antes; o número de fills só decide de quem se baixa o proxy completo (§3.3). Decisão do Bloco B, aceita |
 | 1.2 | 2026-10-07 | Decisões do Bloco A incorporadas: tabelas do coletor particionadas pelo dia de recebimento, com leitura pelo instante da corretora nas partições vizinhas, e coluna `conn_ms` (§3.2) |
 | 1.1 | 2026-10-07 | Respostas às perguntas do Bloco 0. Regra de onde mora cada número (§3.9). Limiares inclusivos (§3.6). `numpy` permitido em `storage` para o hash de conteúdo (§2.2) |
 | 1.0 | 2026-10-07 | **Aprovado.** Uma precisão em relação à 0.2, vinda da conferência do Claude Code: `window open` recusa commit com data no futuro, o que fecha a brecha de datar o commit à mão (§4.4) |

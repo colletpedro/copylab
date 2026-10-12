@@ -2,6 +2,12 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versionamento por spec, não global.
 
+## 2026-10-08
+
+### fase-1-design 1.3
+
+Registra o percurso dos ativos candidatos feito no Bloco B, aceito como estava (§3.3). Segue RF-SEL-08 (ii): os 20 de maior notional entre os que têm equivalente na Binance, sem filtrar por fills antes. A condição (i) é conferida pela existência do arquivo de cada dia da janela, e o número de fills só decide de quem se baixa o proxy completo (as outras candidatas já falham na condição (iii)). Substitui a leitura de 1.2, que percorria os ativos enquanto tivessem 2.000 fills e conferia a condição (i) baixando.
+
 ## 2026-10-07
 
 ### fase-1-design 1.2
