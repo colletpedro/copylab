@@ -239,13 +239,44 @@ conferência da cópia pelo hash de conteúdo (design §3.4) chega com a leitura
 
 ## 10. Mudar a lista de ativos ou atualizar o código
 
-```powershell
-cd C:\copylab; git pull; uv sync
-```
+Num PowerShell **como administrador**, dentro de `C:\copylab`. A ordem importa, e cada passo tem uma
+razão medida no Windows:
+
+- `Stop-ScheduledTask` sozinho não basta: não derrubou um processo do coletor que não pertencia à
+  tarefa (um que tinha sido iniciado à mão, ou que a tarefa já não enxergava).
+- Sem `Disable-ScheduledTask` antes, o gatilho de 1 minuto (seção 6.1) religa o coletor, **com o
+  código antigo**, no meio da atualização.
 
 ```powershell
-Stop-ScheduledTask -TaskName "copylab-coletor"; Start-ScheduledTask -TaskName "copylab-coletor"
+# 1. Desativar a tarefa: o gatilho de 1 minuto deixa de religar o coletor.
+Disable-ScheduledTask -TaskName "copylab-coletor"
+$parada = (Get-Date).ToUniversalTime().ToString("o"); "parada: $parada"   # anote este instante
+
+# 2. Parar a tarefa.
+Stop-ScheduledTask -TaskName "copylab-coletor"
+
+# 3. Encerrar a árvore de processos que sobrar, pertença ou não à tarefa.
+$resto = Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'copylab' -and $_.CommandLine -match 'collect' }
+$resto | ForEach-Object { taskkill /F /T /PID $_.ProcessId }
+Start-Sleep -Seconds 3
+Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'copylab' -and $_.CommandLine -match 'collect' }   # não pode listar nada
+
+# 4. Atualizar.
+git pull; uv sync
+
+# 5. Reativar e iniciar.
+Enable-ScheduledTask -TaskName "copylab-coletor"
+Start-ScheduledTask -TaskName "copylab-coletor"
+$volta = (Get-Date).ToUniversalTime().ToString("o"); "volta: $volta"   # anote este instante
 ```
+
+Se o passo 3 ainda listar um processo, repita o `taskkill /F /T /PID <pid>` com o PID listado antes de
+seguir: atualizar com o coletor antigo vivo é o erro que este roteiro existe para evitar.
+
+**Anote os dois instantes (UTC), parada e volta, e o commit em que o coletor voltou** (`git rev-parse
+--short HEAD`). O intervalo entre eles é uma lacuna que o coletor registra sozinho, e é a explicação
+dela quando a cobertura de um dia ficar abaixo de 95% na medida de custo (RF-COL-05 CA-05.2). Confira
+a volta com o `collect status` (seção 8) e a linha `collector.event` com `"kind": "connect"` no log.
 
 Parar a tarefa mata o processo: perde-se no máximo o que não tinha sido descarregado, e a subida
 seguinte fecha o segmento interrompido. A lista de ativos só muda por commit (decisão 12 do design).
