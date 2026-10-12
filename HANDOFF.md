@@ -1331,3 +1331,7 @@ fator. Cada uma está na docstring do teste que a pega.
 6. **Curva de patrimônio de subconta congelada** termina no ponto do congelamento, com o valor real.
 7. **`ProxySource` expõe `horizon()` global**; o teste de aceitação usa o consumo por ativo, que é mais fino.
    Se a fonte do Bloco H (livro) tiver leitura da observação seguinte, o horizonte dela precisa cobrir isso.
+
+## 8. CI
+
+Verde nos três jobs (lint, tipos e testes; testes no Windows; auditoria) no commit `a0b769c`, execução 38295992920.
