@@ -1,4 +1,5 @@
-"""Simulador de cópia com execução em t + Δ ao pior preço (RF-SIM).
+"""Simulador de cópia: contabilidade, entradas presas ao cursor, espelhamento e laço (Bloco D).
 
-Vazio de propósito até o Bloco D do plano de tarefas (T-040).
+Lógica pura (design §2.1): não importa ``storage``, rede, arquivo nem relógio. Recebe os dados
+já lidos, como objetos, e devolve objetos.
 """
