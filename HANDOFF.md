@@ -1223,3 +1223,5 @@ de quem chama. **Confirmar.**
 
 - 478 testes unitários (eram 439).
 - `make check` verde no clone de desenvolvimento, com o `.env` no lugar.
+- **CI verde nos três jobs** (lint, tipos e testes; testes no Windows; auditoria) no commit `50b5b7e`,
+  execução 38291860362.
