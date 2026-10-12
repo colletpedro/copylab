@@ -4,6 +4,7 @@ Lógica pura (design §2.1): lê os fills como tabela, não importa ``storage``,
 relógio. As regras estão em ``ledger.py`` e no design §3.5.
 """
 
+from copylab.leader.diagnostics import break_report
 from copylab.leader.episodes import build_episodes
 from copylab.leader.ledger import build_events, continuity_breaks, ignored_fills
 from copylab.leader.model import (
@@ -27,6 +28,7 @@ __all__ = [
     "Episode",
     "Kind",
     "LeaderEvent",
+    "break_report",
     "build_episodes",
     "build_events",
     "continuity_breaks",
