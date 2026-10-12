@@ -216,7 +216,7 @@ def test_mutating_future_does_not_change_orders_decided_before_cutoff(
     nada).
 
     Mutações de lookahead registradas, todas feitas à mão e restauradas (as cinco derrubam este
-    teste, de 10 a 15 dos 15 cenários cada): (1) o laço lê o evento no instante dele, sem esperar
+    teste, de 6 a 15 dos 15 cenários cada): (1) o laço lê o evento no instante dele, sem esperar
     o atraso (`bind(view, 0)`, e `wake`, `until(now)` e `last_read` sem `delay`); (2) o preço da
     ordem sai da barra do segundo seguinte (`ladder` lê `index + 1`); (3) a marcação usa o último
     preço do segundo corrente, e não o do anterior (`mark` com `bisect_right`), isto é, marca pelo

@@ -1282,10 +1282,10 @@ excesso sobre o teto, congelamento e o conteúdo de `SubaccountResult`.
 
 O teste altera, para cada corte `c`, os eventos depois de `c`, os preços depois de `c + Δ` e da última
 observação consumida **por ativo**, e o funding depois de `c + Δ`, e exige as mesmas ordens executadas até
-`c + Δ`, com execuções atrasadas por buracos de preço (75 cortes: 5 cenários semeados, 3 atrasos, 5 e mais
-cortes por rodada).
+`c + Δ`, com execuções atrasadas por buracos de preço (15 cenários, de 5 sementes e 3 atrasos, com 11 cortes
+cada).
 
-Mutações de lookahead que ele pega (cada uma feita à mão e restaurada; de 10 a 15 dos 15 cenários caem):
+Mutações de lookahead que ele pega (cada uma feita à mão e restaurada; de 6 a 15 dos 15 cenários caem):
 1. o laço lê o evento no instante dele, sem esperar o atraso;
 2. o preço da ordem sai da barra do segundo seguinte;
 3. a marcação usa o último preço do segundo corrente (marcar pelo fim do segundo);
