@@ -42,7 +42,7 @@ from copylab.selection.pool import pool_block, sample_pool
 from copylab.storage import ParquetRepository, ParquetStore, Span
 from copylab.storage.segments import SegmentStore
 from copylab.storage.tables import LEADERBOARD
-from copylab.timeutil import Ms, iso, parse_utc_date, utc_day
+from copylab.timeutil import Ms, day_start, iso, parse_utc_date, utc_day
 
 __all__ = ["app"]
 
@@ -198,6 +198,22 @@ def collect_status(
             latency_p50_ms=None if latency is None else latency.p50_ms,
             latency_p95_ms=None if latency is None else latency.p95_ms,
             latency_p99_ms=None if latency is None else latency.p99_ms,
+        )
+    for asset in result.assets:
+        if not asset.daily:
+            continue
+        today = asset.daily[-1] if not asset.daily[-1].complete else None
+        log.info(
+            "collector.status.days",
+            coin=asset.coin,
+            complete_days_pct={
+                iso(day_start(d.day))[:10]: round(100 * d.covered_fraction, 2)
+                for d in asset.daily
+                if d.complete
+            },
+            today=None if today is None else iso(day_start(today.day))[:10],
+            today_pct=None if today is None else round(100 * today.covered_fraction, 2),
+            today_elapsed_h=None if today is None else round(today.observed_ms / 3_600_000, 2),
         )
     overall = result.latency
     log.info(

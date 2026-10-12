@@ -27,7 +27,7 @@ import pytest
 from copylab.collector.compact import Compactor
 from copylab.collector.status import CollectorStatus, collector_status, nearest_rank
 from copylab.storage import ParquetStore
-from copylab.storage.segments import EVENTS, Record, SegmentStore
+from copylab.storage.segments import EVENTS, Record, SegmentRef, SegmentStore, SegmentWriter
 from copylab.timeutil import MS_PER_DAY, MS_PER_HOUR, Ms
 
 DAY = 20_732
@@ -216,3 +216,266 @@ def test_status_of_an_empty_data_dir_has_no_projection(tmp_path: Path) -> None:
     assert result.projected_bytes is None
     assert result.within_budget is None
     assert result.latency is None
+
+
+# ─── Leitura enquanto o gravador roda ────────────────────────────────────────
+
+
+class StaleListing(SegmentStore):
+    """Um armazenamento cuja listagem foi tirada antes de o gravador mexer nos arquivos.
+
+    É o que o status vê no Windows: lista os segmentos, e o gravador fecha (renomeia) ou a
+    compactação apaga um deles antes de a leitura chegar lá.
+    """
+
+    def __init__(self, data_dir: Path, listing: list[SegmentRef]) -> None:
+        super().__init__(data_dir)
+        self._listing = listing
+
+    def segments(self, *, include_open: bool = False) -> list[SegmentRef]:
+        return [r for r in self._listing if include_open or r.closed]
+
+
+def open_segment(
+    store: SegmentStore, coin: str, records: list[tuple[int, int, bytes]]
+) -> SegmentWriter:
+    hour = Ms(records[0][0] // MS_PER_HOUR * MS_PER_HOUR)
+    writer = store.open_writer(coin, "book", hour, Ms(records[0][0]))
+    for recv, conn, raw in records:
+        writer.append(Record(Ms(recv), Ms(conn), raw))
+    writer.flush()
+    return writer
+
+
+@pytest.mark.unit
+def test_status_survives_a_segment_renamed_or_deleted_between_listing_and_reading(
+    tmp_path: Path,
+) -> None:
+    """Um segmento listado em escrita e fechado antes da leitura é relido pelo nome novo; um
+    apagado nesse meio tempo é pulado. Nunca `FileNotFoundError`.
+
+    BTC, conexão a aberta em D0 + 100: o retrato (primeira mensagem) é descartado e o livro
+    vem em D0 + 1 s, 5 s e 9 s. Agora, D0 + 10 s.
+      desde o primeiro livro, D0 + 1 s: 9.000 ms de tempo;
+      intervalos de 4 s, abaixo do silêncio de 10 s: nenhuma lacuna;
+      último livro em 9 s, 1 s de silêncio: não é lacuna em curso.
+    Cobertura: 1 - 0 / 9.000 = 1.
+    ETH gravou um segmento, que foi apagado depois da listagem: sem livro, cobertura
+    ausente.
+
+    Mutação registrada: trocar `read_live` por `read` em `_Reader.book_points` faz este
+    teste cair com `FileNotFoundError` em BTC, que é o defeito visto no Windows.
+    """
+    store = SegmentStore(tmp_path)
+    a = D0 + 100
+    btc = open_segment(
+        store,
+        "BTC",
+        [(a + 5, a, book("BTC", a))]
+        + [(D0 + t + 300, a, book("BTC", D0 + t)) for t in (1_000, 5_000, 9_000)],
+    )
+    eth = open_segment(store, "ETH", [(a + 5, a, book("ETH", a))])
+    listing = store.segments(include_open=True)
+    assert [r.closed for r in listing] == [False, False]
+
+    btc.close()  # renomeado depois da listagem
+    store.delete(eth.close())  # fechado e apagado depois da listagem
+
+    result = collector_status(
+        StaleListing(tmp_path, listing),
+        ParquetStore(tmp_path),
+        ["BTC", "ETH"],
+        now_ms=Ms(D0 + 10_000),
+        max_silence_ms=SILENCE,
+        projection_days=45,
+        budget_bytes=30 * 10**9,
+    )
+    btc_status, eth_status = result.assets
+    assert btc_status.since_ms == D0 + 1_000
+    assert btc_status.gap_count == 0
+    assert btc_status.covered_fraction == pytest.approx(1.0)
+    assert eth_status.covered_fraction is None
+
+
+@pytest.mark.unit
+def test_disk_bytes_counts_a_closed_segment_by_its_new_name_and_skips_a_deleted_one(
+    tmp_path: Path,
+) -> None:
+    """Soma estável com a listagem velha: BTC fechou (conta pelo nome de fechado) e ETH foi
+    apagado (não conta). Valor esperado: o tamanho do arquivo de BTC em disco agora.
+
+    Mutação registrada: somar `ref.path.stat()` direto, sem tentar o nome de fechado, faz
+    este teste cair com `FileNotFoundError`."""
+    store = SegmentStore(tmp_path)
+    a = D0 + 100
+    btc = open_segment(store, "BTC", [(a + 5, a, book("BTC", a))])
+    eth = open_segment(store, "ETH", [(a + 5, a, book("ETH", a))])
+    listing = store.segments(include_open=True)
+    closed_btc = btc.close()
+    closed_eth = eth.close()
+    expected = closed_btc.path.stat().st_size
+    store.delete(closed_eth)
+    assert StaleListing(tmp_path, listing).disk_bytes() == expected
+
+
+# ─── Cobertura por dia UTC ───────────────────────────────────────────────────
+
+H = MS_PER_HOUR
+LONG_SILENCE = 100 * H  # só reconexão faz lacuna nestes cenários
+
+
+def day_status(tmp_path: Path, now: int) -> CollectorStatus:
+    return collector_status(
+        SegmentStore(tmp_path),
+        ParquetStore(tmp_path),
+        ["BTC"],
+        now_ms=Ms(now),
+        max_silence_ms=LONG_SILENCE,
+        projection_days=45,
+        budget_bytes=30 * 10**9,
+    )
+
+
+def build_three_days(tmp_path: Path) -> None:
+    """BTC começa a gravar às 18 h do primeiro dia e tem uma desconexão de 1 h nele.
+
+    Dia D0 (20.732), conexão a aberta às 18 h: retrato descartado, livro em 18 h + 1 s e
+    às 20 h e 22 h. Conexão b aberta às 22,5 h: retrato descartado, livro às 23 h.
+    Dia D0 + 1 dia, conexão b: livro às 0,5 h, 5 h, 10 h, 15 h, 20 h e 23,5 h.
+    Dia D0 + 2 dias, ainda sem compactar: livro às 1 h, 3 h e 5 h.
+    """
+    segments, tables = SegmentStore(tmp_path), ParquetStore(tmp_path)
+    a, b = D0 + 18 * H, D0 + 22 * H + H // 2
+    segment(
+        segments,
+        "BTC",
+        "book",
+        [(a, a, book("BTC", a))]
+        + [(t + 300, a, book("BTC", t)) for t in (a + 1_000, D0 + 20 * H, D0 + 22 * H)],
+    )
+    segment(
+        segments,
+        "BTC",
+        "book",
+        [(b, b, book("BTC", b)), (D0 + 23 * H + 300, b, book("BTC", D0 + 23 * H))],
+    )
+    d1 = D0 + MS_PER_DAY
+    hours = (H // 2, 5 * H, 10 * H, 15 * H, 20 * H, 23 * H + H // 2)
+    segment(segments, "BTC", "book", [(d1 + h + 300, b, book("BTC", d1 + h)) for h in hours])
+    compactor = Compactor(segments, tables, LONG_SILENCE)
+    compactor.compact_day(DAY)
+    compactor.compact_day(DAY + 1)
+    d2 = D0 + 2 * MS_PER_DAY
+    segment(
+        segments,
+        "BTC",
+        "book",
+        [(d2 + h + 300, b, book("BTC", d2 + h)) for h in (H, 3 * H, 5 * H)],
+        close=False,
+    )
+
+
+@pytest.mark.unit
+def test_status_reports_coverage_per_utc_day_for_each_asset(tmp_path: Path) -> None:
+    """RF-COL-05 CA-05.2: o número que a medida de custo usa. Agora: D0 + 2 dias + 6 h.
+
+    Primeiro livro, D0 + 18 h + 1 s: `since`. Dia D0, encerrado, 24 h = 86.400.000 ms.
+      lacuna: o livro em 22 h (conexão a) até o de 23 h (conexão b): 1 h = 3.600.000 ms.
+      antes do primeiro livro: 18 h + 1 s = 64.801.000 ms, que conta como não coberto.
+      cobertura: 1 - (3.600.000 + 64.801.000) / 86.400.000 = 17.999.000 / 86.400.000.
+    Dia D0 + 1: a conexão b segue viva do dia anterior. Livro de 6 em 6 h no máximo, e o
+    silêncio máximo do cenário é de 100 h: nenhuma lacuna, cobertura 1.
+    Dia D0 + 2, em curso, 6 h = 21.600.000 ms decorridas: livro em 1 h, 3 h e 5 h, a última
+    1 h antes de agora. Sem lacuna, cobertura 1 sobre as 6 h, e o dia vem como incompleto.
+
+    Mutação registrada: contar só o tempo depois do primeiro livro no primeiro dia (sem o
+    `unrecorded_ms`) faz o primeiro dia sair com 1 - 3.600.000 / 22.199.000 = 0,838 em vez
+    de 0,208, e o teste cai.
+    """
+    build_three_days(tmp_path)
+    now = D0 + 2 * MS_PER_DAY + 6 * H
+    btc = day_status(tmp_path, now).assets[0]
+    first, second, third = btc.daily
+    assert [d.day for d in btc.daily] == [DAY, DAY + 1, DAY + 2]
+    assert [d.complete for d in btc.daily] == [True, True, False]
+    assert first.observed_ms == MS_PER_DAY
+    assert first.gap_ms == 3_600_000
+    assert first.unrecorded_ms == 64_801_000
+    assert first.covered_fraction == pytest.approx(17_999_000 / 86_400_000)
+    assert (second.gap_ms, second.unrecorded_ms) == (0, 0)
+    assert second.covered_fraction == pytest.approx(1.0)
+    assert third.observed_ms == 6 * H
+    assert third.covered_fraction == pytest.approx(1.0)
+
+
+@pytest.mark.unit
+def test_status_over_compacted_tables_equals_status_over_the_same_raw_segments(
+    tmp_path: Path,
+) -> None:
+    """O status lê tabelas para os dias compactados e segmentos para o dia aberto, e as duas
+    leituras dão o mesmo número para o mesmo dado: compactar não muda o que o status diz.
+
+    BTC, conexão a (aberta em D0 + 100): retrato descartado, livro em 1 s, 5 s, 20 s
+    (lacuna de 15 s, acima do silêncio de 10 s), conexão b (aberta em D0 + 30 s), retrato
+    descartado, livro em 31 s e 33 s. Negócios com atraso de recebimento de 100, 200 e
+    300 ms na conexão a e de 400 ms depois do retrato da conexão b.
+
+    Posto mais próximo, n = 4 atrasos (100, 200, 300, 400): p50 = 2º = 200, p95 = 4º = 400,
+    p99 = 4º = 400. Lacunas: [5 s, 20 s] silêncio e [20 s, 31 s] desconexão.
+
+    Mutação registrada: em `_Reader.book_points`, não descartar a primeira mensagem de cada
+    conexão (o retrato) faz este teste cair, junto com os dois de cobertura acima, porque o
+    retrato entra como ponto do livro e muda lacunas e `since`. O mesmo em
+    `_Reader.trade_delays`: o retrato dos negócios entra com atraso de 10 ms e muda a
+    mediana e a contagem (cai este teste).
+    """
+    now = D0 + 40_000
+    a, b = D0 + 100, D0 + 30_000
+
+    def fill(store: SegmentStore) -> None:
+        segment(
+            store,
+            "BTC",
+            "book",
+            [(a, a, book("BTC", a))]
+            + [(t + 300, a, book("BTC", t)) for t in (D0 + 1_000, D0 + 5_000, D0 + 20_000)]
+            + [(b, b, book("BTC", b))]
+            + [(t + 300, b, book("BTC", t)) for t in (D0 + 31_000, D0 + 33_000)],
+        )
+        segment(
+            store,
+            "BTC",
+            "trades",
+            [(a + 5, a, trade("BTC", a - 5, 0))]
+            + [
+                (D0 + 2_000 + d, a, trade("BTC", D0 + 2_000, i))
+                for i, d in enumerate((100, 200, 300))
+            ]
+            + [
+                (b + 5, b, trade("BTC", b - 5, 9)),
+                (D0 + 32_000 + 400, b, trade("BTC", D0 + 32_000, 10)),
+            ],
+        )
+
+    raw_dir, table_dir = tmp_path / "raw", tmp_path / "tables"
+    fill(SegmentStore(raw_dir))
+    fill(SegmentStore(table_dir))
+    Compactor(SegmentStore(table_dir), ParquetStore(table_dir), SILENCE).compact_day(DAY)
+
+    def read(root: Path) -> CollectorStatus:
+        return collector_status(
+            SegmentStore(root),
+            ParquetStore(root),
+            ["BTC"],
+            now_ms=Ms(now),
+            max_silence_ms=SILENCE,
+            projection_days=45,
+            budget_bytes=30 * 10**9,
+        )
+
+    from_segments, from_tables = read(raw_dir).assets[0], read(table_dir).assets[0]
+    assert from_segments == from_tables
+    assert (from_tables.gap_count, from_tables.gap_ms) == (2, 26_000)
+    latency = from_tables.latency
+    assert latency is not None
+    assert (latency.count, latency.p50_ms, latency.p95_ms, latency.p99_ms) == (4, 200, 400, 400)

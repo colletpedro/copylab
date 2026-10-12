@@ -216,8 +216,15 @@ uv run copylab collect status
 | `collector.status.asset` | `coverage_pct` | Fração do tempo sem lacuna desde o primeiro livro gravado do ativo. A Rota B exige 95% por ativo (§7.2). Com o coletor parado, cai: o silêncio desde a última mensagem conta como lacuna |
 | | `gaps`, `gap_s` | Lacunas e o tempo somado delas. Lacuna é desconexão ou mais de 10 s sem livro |
 | | `latency_p50_ms` a `p99_ms` | Recebimento menos o instante da corretora, nos negócios. Mistura rede e diferença de relógio |
+| `collector.status.days` | `complete_days_pct` | Cobertura de cada dia UTC **encerrado** do ativo, desde o primeiro livro. O denominador é o dia inteiro, e o que veio antes do primeiro livro conta como não coberto: um ativo que começou às 18 h tem no máximo 25% no primeiro dia. É o número que a medida de custo usa (RF-COL-05 CA-05.2): os 3 primeiros dias UTC completos com ao menos 95% |
+| | `today`, `today_pct`, `today_elapsed_h` | O dia em curso, sobre o tempo decorrido dele. Ainda não é um dia completo |
 | `collector.status.latency` | | O mesmo para todos os ativos, ao lado da grade de Δ (1, 5 e 30 s) |
 | `collector.status.disk` | `projected_gb`, `within_budget` | Projeção linear do disco para 45 dias contra o orçamento de 30 GB |
+
+O status só interpreta os segmentos brutos que ainda existem (o dia aberto, e um dia que a compactação
+ainda não alcançou) e lê só as colunas de que precisa das tabelas compactadas; compactar todo dia
+(seção 6.3) é o que o mantém rápido. Um segmento que o coletor fecha, ou que a compactação apaga, no
+meio da leitura não derruba o comando.
 
 **No fim do primeiro dia (marco M-A do plano):** depois da primeira compactação (seção 6.3, ou à mão
 na seção 7), anote `projected_gb`. Se passar de 30 GB, a decisão volta para a conversa de arquitetura

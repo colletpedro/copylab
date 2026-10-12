@@ -201,15 +201,28 @@ class ParquetStore:
         return sorted(found)
 
     def disk_bytes(self, table: str) -> int:
-        """Bytes ocupados pelas partições da tabela (temporários incluídos)."""
-        base = self._table_dir(table)
-        return sum(path.stat().st_size for path in base.rglob("*") if path.is_file())
+        """Bytes ocupados pelas partições da tabela (temporários incluídos).
+
+        Um arquivo que some enquanto se soma (um temporário trocado de nome por uma escrita
+        em curso) não conta, e o total não falha por isso.
+        """
+        total = 0
+        for path in self._table_dir(table).rglob("*"):
+            try:
+                if path.is_file():
+                    total += path.stat().st_size
+            except FileNotFoundError:
+                continue
+        return total
 
     def exists(self, table: str, partition: Partition) -> bool:
         return self._path(table, partition).is_file()
 
-    def read(self, table: str, partition: Partition) -> pl.DataFrame:
-        """Conteúdo inteiro da partição.
+    def read(
+        self, table: str, partition: Partition, columns: Sequence[str] | None = None
+    ) -> pl.DataFrame:
+        """Conteúdo da partição; só as ``columns`` pedidas, se dadas (o Parquet é colunar,
+        e ler três colunas de um dia de livro custa uma fração de ler as vinte e três).
 
         Raises:
             DataError: se a partição não existe.
@@ -217,7 +230,7 @@ class ParquetStore:
         path = self._path(table, partition)
         if not path.is_file():
             raise DataError(f"Partição {partition} da tabela {table!r} não existe.")
-        return pl.read_parquet(path)
+        return pl.read_parquet(path, columns=None if columns is None else list(columns))
 
     def spans(self, table: str, partition: Partition) -> tuple[Span, ...]:
         """Trechos já gravados na partição; vazio se ela não existe."""

@@ -295,6 +295,35 @@ class SegmentStore:
         for block in blocks:
             yield from _decode_records(block, ref.path)
 
+    def read_live(self, ref: SegmentRef) -> Iterator[Record]:
+        """Registros de um segmento que pode ter mudado de nome desde a listagem.
+
+        Para quem lê enquanto o gravador roda (o status): um segmento listado em escrita
+        é renomeado ao fechar, e um segmento fechado é apagado pela compactação. Tenta o
+        nome da listagem e, se o arquivo sumiu, o nome de fechado; se também não existe,
+        o segmento foi apagado e não há o que ler. Nunca levanta ``FileNotFoundError``.
+        Fora isso, lê como :meth:`read`: estrito se fechado, até o último bloco íntegro se
+        aberto.
+        """
+        for path, closed in self._names(ref):
+            try:
+                data = path.read_bytes()
+            except FileNotFoundError:
+                continue
+            blocks, _ = _members(data, path, tolerant=not closed)
+            for block in blocks:
+                yield from _decode_records(block, path)
+            return
+        log.debug("collector.segment_vanished", segment=str(ref.path))
+
+    @staticmethod
+    def _names(ref: SegmentRef) -> list[tuple[Path, bool]]:
+        """Os nomes que o segmento pode ter agora, com o que se sabe do estado de cada um."""
+        names = [(ref.path, ref.closed)]
+        if not ref.closed:
+            names.append((ref.path.with_name(ref.path.name.removesuffix(_OPEN)), True))
+        return names
+
     def recover(self) -> list[SegmentRef]:
         """Fecha os segmentos deixados abertos por uma queda, até o último bloco íntegro.
 
@@ -331,8 +360,20 @@ class SegmentStore:
         ref.path.unlink()
 
     def disk_bytes(self) -> int:
-        """Bytes ocupados por todos os segmentos, abertos e fechados."""
-        return sum(ref.path.stat().st_size for ref in self.segments(include_open=True))
+        """Bytes ocupados por todos os segmentos, abertos e fechados.
+
+        Um segmento que fecha ou é apagado enquanto se soma conta pelo nome novo, ou não
+        conta, se sumiu: o total nunca falha por isso.
+        """
+        total = 0
+        for ref in self.segments(include_open=True):
+            for path, _ in self._names(ref):
+                try:
+                    total += path.stat().st_size
+                except FileNotFoundError:
+                    continue
+                break
+        return total
 
     @contextmanager
     def exclusive(self) -> Iterator[None]:

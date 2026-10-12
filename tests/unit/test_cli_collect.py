@@ -15,10 +15,11 @@ import pytest
 from typer.testing import CliRunner
 from websockets.sync.server import ServerConnection, serve
 
-from copylab import cli
+from copylab import cli, clock
 from copylab.collector.assets import DEFAULT_ASSETS_PATH, load_assets
 from copylab.exceptions import ConfigError
-from copylab.storage.segments import SegmentStore
+from copylab.storage.segments import Record, SegmentStore
+from copylab.timeutil import Ms
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BOOK = (
@@ -130,13 +131,44 @@ def test_collect_records_then_status_and_compact_run(
 
 @pytest.mark.unit
 def test_compacting_today_is_refused(data_env: Path) -> None:
-    from copylab import clock
     from copylab.timeutil import iso
 
     today = iso(clock.now())[:10]
     result = CliRunner().invoke(cli.app, ["collect", "compact", "--day", today])
     assert result.exit_code == 1
     assert "ainda não terminou" in result.output
+
+
+@pytest.mark.unit
+def test_status_prints_coverage_per_utc_day(
+    data_env: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`collect status` mostra, por ativo, a cobertura de cada dia UTC.
+
+    BTC com um segmento ainda em escrita no dia 2026-10-06 (D0 = 1.791.244.800.000 ms): o
+    retrato em D0 + 100 é descartado, e o livro vem em D0 + 1 s e D0 + 5 s. Agora, D0 + 8 s:
+    o dia é o de hoje, incompleto, com 8 s decorridas = 0,0022 h. Antes do primeiro livro
+    foi 1 s que não se gravou, e não há lacuna: cobertura do dia = 1 - 1.000 / 8.000 =
+    87,5%.
+    """
+    d0 = 1_791_244_800_000
+    conn = d0 + 100
+    writer = SegmentStore(data_env).open_writer("BTC", "book", Ms(d0), Ms(conn))
+    for recv, time in ((conn + 5, conn), (d0 + 1_300, d0 + 1_000), (d0 + 5_300, d0 + 5_000)):
+        data = {"coin": "BTC", "time": time, "levels": [[], []], "fast": True}
+        message = {"channel": "l2Book", "data": data}
+        writer.append(Record(Ms(recv), Ms(conn), json.dumps(message).encode()))
+    writer.flush()
+    monkeypatch.setattr(clock, "now", lambda: Ms(d0 + 8_000))
+    assets = tmp_path / "ativos.toml"
+    assets.write_text('coins = ["BTC"]', encoding="utf-8")
+
+    result = CliRunner().invoke(cli.app, ["collect", "status", "--assets", str(assets)])
+    assert result.exit_code == 0, result.output
+    line = next(x for x in result.output.splitlines() if "collector.status.days" in x)
+    assert "coin=BTC" in line
+    assert "today=2026-10-06" in line
+    assert "today_pct=87.5" in line
 
 
 @pytest.mark.unit
