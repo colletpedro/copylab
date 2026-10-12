@@ -14,7 +14,7 @@ RUN := $(UV) run
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install test test-unit test-integration \
+.PHONY: help install sync test test-unit test-integration \
         lint format typecheck audit check clean
 
 help: ## Lista os alvos disponíveis
@@ -26,22 +26,30 @@ help: ## Lista os alvos disponíveis
 install: ## Instala dependências de runtime e de desenvolvimento
 	$(UV) sync --all-groups
 
+# Todo alvo que roda ferramenta do .venv começa por aqui, como o CI, que roda
+# `uv sync --all-groups` antes de `uv run`. Um `uv sync --only-*` ou `--no-install-project`
+# (sincronização exata) desinstala o pacote editável e as ferramentas de dev; sem este passo,
+# o `pytest` seguinte falha com "No module named 'copylab'" no lugar de reparar o ambiente.
+# É idempotente: com o ambiente alinhado ao uv.lock, não faz nada.
+sync:
+	@$(UV) sync --all-groups --quiet
+
 # ─── Testes ──────────────────────────────────────────────────────────────────
 
-test: ## Suíte default (integração desmarcada) com cobertura — o que o CI roda
+test: sync ## Suíte default (integração desmarcada) com cobertura — o que o CI roda
 	$(RUN) pytest --cov --cov-report=term-missing --cov-report=xml
 
-test-unit: ## Apenas os testes marcados como unit
+test-unit: sync ## Apenas os testes marcados como unit
 	$(RUN) pytest -m unit
 
-test-integration: ## Apenas os testes marcados como integration (precisam de rede)
+test-integration: sync ## Apenas os testes marcados como integration (precisam de rede)
 	@# Sem tolerância ao código 5 (nada coletado): desde o coletor (T-014) existe teste de
 	@# integração, e "nenhum teste coletado" significaria que a suíte sumiu.
 	$(RUN) pytest -m integration -s
 
 # ─── Qualidade ───────────────────────────────────────────────────────────────
 
-lint: ## ruff check + verificação de formatação
+lint: sync ## ruff check + verificação de formatação
 	$(RUN) ruff check .
 	$(RUN) ruff format --check .
 
@@ -49,10 +57,10 @@ format: ## Aplica formatação e correções automáticas do ruff
 	$(RUN) ruff format .
 	$(RUN) ruff check --fix .
 
-typecheck: ## mypy --strict (RNF-05)
+typecheck: sync ## mypy --strict (RNF-05)
 	$(RUN) mypy src tests
 
-audit: ## Vulnerabilidades conhecidas nas dependências instaladas
+audit: sync ## Vulnerabilidades conhecidas nas dependências instaladas
 	@# --skip-editable pula o próprio copylab, que não está publicado no PyPI.
 	$(RUN) pip-audit --skip-editable
 
