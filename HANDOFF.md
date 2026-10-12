@@ -1225,3 +1225,109 @@ de quem chama. **Confirmar.**
 - `make check` verde no clone de desenvolvimento, com o `.env` no lugar.
 - **CI verde nos três jobs** (lint, tipos e testes; testes no Windows; auditoria) no commit `50b5b7e`,
   execução 38291860362.
+
+
+---
+
+# HANDOFF — Bloco D, simulador (prompt 11)
+
+**Data:** 2026-10-12
+**Escopo entregue:** as respostas do Bloco C no design 1.5, e o Bloco D (T-040 a T-045), sobre o design 1.5.
+**Não feito, de propósito:** `BookSource` (Bloco H), métricas, carteira, benchmark, grade e decomposição
+(Bloco E), seleção. Nenhum dado real nos testes, nenhum `ingest`.
+
+## 1. Parte 0 — respostas do Bloco C, registradas no design 1.5 (`87a98b4`)
+
+1. **Diagnóstico de TWAP (T-032):** vizinhança de 1 hora de cada lado e faixas de 0 a 30, 30 a 60, 60 a 90 e
+   acima de 90 dias, como padrão do comando de relatório, e não em `parametros.toml` (§3.5).
+2. **Cobertura por dia:** a definição do status vale, e só entram dias já encerrados; o dia em que BNB e TAO
+   entraram no coletor fica de fora (§3.4).
+3. **Escolhas de implementação:** ficam como estão. Em T-063, `pnl_divergence_bps` `None` conta como "não
+   conciliado", nunca como "conciliado" (§3.6, linha de F3).
+4. **`pnl_violations` olha todos os ativos;** F3 só considera os episódios de ativos do universo, e o
+   filtro de T-063 é que recorta (§3.6).
+
+## 2. Duas perguntas que fiz antes de implementar
+
+- **Variante só compras.** O design §4.3 passo 1 dizia "posição negativa do líder conta como zero" (corta a
+  posição antes do fator do teto). RF-SIM-02 CA-02.6 e o ADR-0002 dizem "alvo negativo substituído por zero e
+  todo o resto idêntico" (corta o alvo depois do fator). Os requisitos prevalecem: **vale zerar o alvo depois
+  do fator**, com `f` e `g` calculados com todos os ativos, e os longs ficam do tamanho da cópia completa. O
+  design 1.5 corrige o passo 1. O texto antigo do design estava errado, e o código nunca o seguiu.
+- **`Window` e `Universe`.** `Window(start, end)` mora em `copylab/windows.py`; `run_subaccount` recebe
+  `universe` como `AbstractSet[str]` (os nomes). O `Universe` da seleção (T-061) deve fornecer `.coins`.
+
+## 3. Design 1.5 (§3.7): precisões do simulador
+
+Cursor e `bind` (as entradas soltas não têm método de leitura), instantes e prioridades do laço, `ProxySource`,
+patrimônio de dimensionamento, reduções do passo 6, bisseção do passo 8 com mais de um nível, escada
+consumida entre ordens do mesmo instante, ordem que zera, os cinco motivos de não cópia, alavancagem,
+excesso sobre o teto, congelamento e o conteúdo de `SubaccountResult`.
+
+## 4. Tarefas
+
+| Tarefa | Commit | Onde |
+|---|---|---|
+| T-040 contabilidade e conciliação | `c06fbec` | `sim/account.py`, `sim/model.py`, `windows.py` |
+| T-041 cursor, fita, funding, fonte da Rota A | `3630d3e` | `sim/cursor.py`, `tape.py`, `funding.py`, `prices.py` |
+| T-042 e T-043 espelhamento e laço | `44e0fa6` | `sim/mirror.py`, `sim/loop.py` |
+| T-044 aceitação: mutação do futuro | `9104e16` | `tests/unit/test_sim_acceptance.py` |
+| T-045 cópia ideal e só compras | `2f3e758` | `tests/unit/test_sim_ideal.py` |
+
+- **Cobertura de `copylab.sim`: 97% de linhas e ramos** (755 linhas, 14 sem cobrir; 182 ramos, 13
+  parciais), e 98% somando `leader`. As linhas sem cobrir são guardas defensivas.
+- 554 testes unitários (eram 478). `sim` continua lógica pura, e o teste de pureza passa.
+
+## 5. A mutação do futuro (T-044) e o que ela pegou
+
+O teste altera, para cada corte `c`, os eventos depois de `c`, os preços depois de `c + Δ` e da última
+observação consumida **por ativo**, e o funding depois de `c + Δ`, e exige as mesmas ordens executadas até
+`c + Δ`, com execuções atrasadas por buracos de preço (75 cortes: 5 cenários semeados, 3 atrasos, 5 e mais
+cortes por rodada).
+
+Mutações de lookahead que ele pega (cada uma feita à mão e restaurada; de 10 a 15 dos 15 cenários caem):
+1. o laço lê o evento no instante dele, sem esperar o atraso;
+2. o preço da ordem sai da barra do segundo seguinte;
+3. a marcação usa o último preço do segundo corrente (marcar pelo fim do segundo);
+4. o funding da hora seguinte entra na hora corrente;
+5. o laço espia o evento seguinte da fita.
+
+**Não pega, e não deveria:** usar o preço do fill do líder como preço do seguidor. Isso não é lookahead no
+tempo (o fill é de `t <= tau - Δ`); quem o pega é `test_follower_price_is_independent_of_leader_fill_price`.
+O enunciado do prompt listava essa mutação entre as de lookahead, e **a divergência é de nome, não de
+cobertura**.
+
+**A primeira versão do teste não pegava as mutações 1 e 3.** Dois ajustes a tornaram mais fina: cortes
+colados em eventos do líder (`c = t - 1` e `c = t`), porque só assim há evento dentro de `(c, c + Δ]`; e o
+horizonte por ativo, porque a barra de outro ativo no mesmo segundo ainda não foi lida. Com o teste mais fino
+apareceu um caso que não era defeito mas precisava de decisão: **perguntar a `available_from` se um ativo
+tem negócio no segundo de um instante que já chegou** (para decidir se uma redução do teto pode ser enviada)
+lê o resto desse segundo, como a escada de execução. A fonte agora o conta no horizonte. **Confirmar** que
+essa leitura é aceitável, pelo mesmo motivo do ADR-0003 (o resto do segundo de execução).
+
+## 6. Mutações dos demais testes (todas pegas)
+
+`account`: realizado sem o sinal da posição, taxa não debitada, funding não debitado, custo médio simples.
+`inputs`: guarda do atraso, guardas de preço e de funding frouxas, compra ao mínimo. `engine` (14): pendentes
+sem contagem, marcação no instante nominal, visão atualizada na leitura, preço do líder, reduções em ordem
+inversa, sobra inteira em vez de proporcional, sem mínimo na abertura, mínimo no fechamento total, escada sem
+consumo, sem a pós-condição do teto, redução sem guarda de preço, rastreio sempre ligado, mudança não
+observada não contada, funding depois da execução. `ideal`: capital no lugar do patrimônio, corte antes do
+fator. Cada uma está na docstring do teste que a pega.
+
+## 7. Para conferir, ou que o Bloco E precisa saber
+
+1. **A taxa encolhe a ordem.** A pós-condição do teto desconta a taxa, então com 5 bps a compra que o alvo
+   pede em 10 sai em 9,99. É o passo 8 como escrito, mas quem comparar degraus da decomposição vai ver o
+   efeito. Os degraus sem restrição de tamanho (`size_constraints = False`) não têm esse encolhimento.
+2. **Marcação sem barra anterior é `DataError`.** `mark(c, t)` usa o último segundo antes do de `t`, e se não
+   há nenhum, não inventa preço. Nos dados reais o proxy tem dias antes da janela, então só aconteceria na
+   primeira barra de uma série. Nos testes, todo ativo tem barras antes do primeiro evento.
+3. **Redução arredondada a zero lote** conta em `cap_reduction_below_minimum`, junto com a abaixo do
+   mínimo. Mesmo efeito (não enviada, excesso persiste), motivo parecido.
+4. **Evento depois do congelamento** fica em `pending`, e conta como "pendente no fim". `frozen` explica.
+5. **Pedido em `Order.requested`** é o tamanho enviado (depois de lote e teto), e não o que o alvo pediria;
+   o pedido sem restrições só entra na fração de não cópia.
+6. **Curva de patrimônio de subconta congelada** termina no ponto do congelamento, com o valor real.
+7. **`ProxySource` expõe `horizon()` global**; o teste de aceitação usa o consumo por ativo, que é mais fino.
+   Se a fonte do Bloco H (livro) tiver leitura da observação seguinte, o horizonte dela precisa cobrir isso.

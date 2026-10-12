@@ -16,7 +16,8 @@ contra a corretora real, mas ainda não está ligado na máquina secundária (ma
 data, o design 1.2 incorporou as decisões do Bloco A, e o Bloco B (ingestão, T-020 a T-027, mais
 T-060 e a ordenação de ativos de T-061, adiantadas do Bloco F) foi implementado e testado contra a
 API real em escala pequena; a ingestão completa (marco M-B) foi rodada em 2026-10-09. Em 2026-10-12, o design 1.4 precisou o
-livro-razão do líder, e o Bloco C (T-030 a T-032) foi implementado.** O repositório está publicado em
+livro-razão do líder, e o Bloco C (T-030 a T-032) foi implementado; o design 1.5 precisou o simulador, e o
+Bloco D (T-040 a T-045) foi implementado.** O repositório está publicado em
 `https://github.com/colletpedro/copylab`.
 Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
@@ -38,7 +39,8 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | M-B — ingestão do pool da Rota A | ✅ concluído (2026-10-09), `snapshot_ms=1791482136751`: 3.000 carteiras (2.972 `ok`, 28 `frequência incompatível`, 0 falhas), 3.581.682 fills; 20 ativos cumprem (i) e (ii), todos com proxy; 422 MB em disco |
 | M-C — medida de custo | ⬜ depois de 3 dias UTC completos de gravação dos 20 ativos (BNB e TAO: a partir de 2026-10-13 00:00 UTC) |
 | Bloco C — livro-razão do líder (T-030 a T-032) | ✅ implementado em 2026-10-12, sobre o design 1.4; `copylab.leader` com 100% de linhas e ramos, mutações registradas nas docstrings; CI verde nos três jobs (execução 38291860362, commit `50b5b7e`) |
-| Demais blocos (D a H) | ⬜ |
+| Bloco D — simulador (T-040 a T-045) | ✅ implementado em 2026-10-12, sobre o design 1.5; `copylab.sim` com 97% de linhas e ramos; a mutação do futuro (RF-SIM-01 CA-01.2) pega cinco mutações de lookahead; CI a conferir depois do push |
+| Demais blocos (E a H) | ⬜ |
 
 ## Próximo
 
@@ -50,7 +52,7 @@ SOL, ZEC, LIT, PUMP, XRP, NEAR, ENA, XMR, AAVE, DOGE, FARTCOIN, UNI, BNB, TAO, V
 BNB e TAO entraram na lista do coletor (reiniciar o coletor); detalhes no fim do `HANDOFF.md`.
 **M-C, medida de custo:** pode rodar depois de 3 dias UTC completos de gravação dos 20; para BNB e
 TAO, a partir de 2026-10-13 00:00 UTC, se começarem a gravar antes da virada de 2026-10-10. Em
-paralelo, os Blocos D e E (o C está pronto).
+paralelo, os Blocos E (analytics) e F (seleção); C e D estão prontos.
 
 ## O que existe no código
 
@@ -81,7 +83,11 @@ paralelo, os Blocos D e E (o C está pronto).
   eventos por milissegundo, quebras de continuidade, fills ignorados), `episodes.py`, `pnl.py`
   (conferência por custo médio) e `diagnostics.py` (quebras por idade e por TWAP), com os tipos em
   `model.py`. Lógica pura, sobre a tabela `fills`; o design 1.4 §3.5 fixa as regras.
-- `src/copylab/{sim,analytics}/` — vazios, só `__init__.py` com uma docstring que diz qual
+- `src/copylab/sim/` — o simulador (Bloco D): contabilidade e conciliação (`account.py`), cursor, fita do
+  líder, funding e fonte de preço da Rota A presos ao cursor (`cursor.py`, `tape.py`, `funding.py`,
+  `prices.py`), espelhamento (`mirror.py`) e laço (`loop.py`), com os tipos em `model.py`. Lógica pura.
+  `Window` mora em `src/copylab/windows.py`. `BookSource` (Rota B) é do Bloco H.
+- `src/copylab/analytics/` — vazio, só `__init__.py` com uma docstring que diz qual
   bloco os preenche. Vazios **de propósito** (CLAUDE.md §1).
 - `scripts/verify/` — código exploratório da verificação de dados. Fora do `mypy` e da cobertura.
 - `tests/unit/` — fumaça, `config`, `logging`, ferramentas de medição; testes de `timeutil`,
@@ -93,10 +99,10 @@ paralelo, os Blocos D e E (o C está pronto).
 
 ## Números
 
-- 478 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 2 de integração
+- 554 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 2 de integração
   (60 s do WebSocket real; ingestão de 5 carteiras e de um dia de proxy de BTC), fora da suíte
   default e do CI.
-- Cobertura medida em `leader`, `selection`, `sim` e `analytics`: `leader` e `selection` têm código,
-  os dois com 100% de linhas e ramos (`leader`: `ledger`, `episodes`, `pnl`, `diagnostics`, `model`;
+- Cobertura medida em `leader`, `selection`, `sim` e `analytics`: `leader`, `selection` e `sim` têm
+  código; `leader` e `selection` com 100% de linhas e ramos e `sim` com 97% (`leader`: `ledger`, `episodes`, `pnl`, `diagnostics`, `model`;
   `selection`: `pool.py` e `assets.py`). `storage`, `ports`, `params`, `timeutil` e
   `ingestion` não entram no piso (RNF-02), mas têm testes próprios.
