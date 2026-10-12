@@ -15,7 +15,8 @@ respondeu as perguntas do Bloco 0, e o Bloco A (coletor, T-010 a T-014) foi impl
 contra a corretora real, mas ainda não está ligado na máquina secundária (marco M-A). Na mesma
 data, o design 1.2 incorporou as decisões do Bloco A, e o Bloco B (ingestão, T-020 a T-027, mais
 T-060 e a ordenação de ativos de T-061, adiantadas do Bloco F) foi implementado e testado contra a
-API real em escala pequena; a ingestão completa (marco M-B) foi rodada em 2026-10-09.** O repositório está publicado em
+API real em escala pequena; a ingestão completa (marco M-B) foi rodada em 2026-10-09. Em 2026-10-12, o design 1.4 precisou o
+livro-razão do líder, e o Bloco C (T-030 a T-032) foi implementado.** O repositório está publicado em
 `https://github.com/colletpedro/copylab`.
 Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
@@ -36,7 +37,8 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | T-060 (pool) e ordenação de ativos de T-061 | ✅ adiantadas do Bloco F, em `selection` |
 | M-B — ingestão do pool da Rota A | ✅ concluído (2026-10-09), `snapshot_ms=1791482136751`: 3.000 carteiras (2.972 `ok`, 28 `frequência incompatível`, 0 falhas), 3.581.682 fills; 20 ativos cumprem (i) e (ii), todos com proxy; 422 MB em disco |
 | M-C — medida de custo | ⬜ depois de 3 dias UTC completos de gravação dos 20 ativos (BNB e TAO: a partir de 2026-10-13 00:00 UTC) |
-| Demais blocos (C a H) | ⬜ |
+| Bloco C — livro-razão do líder (T-030 a T-032) | ✅ implementado em 2026-10-12, sobre o design 1.4; `copylab.leader` com 100% de linhas e ramos, mutações registradas nas docstrings; CI a conferir depois do push |
+| Demais blocos (D a H) | ⬜ |
 
 ## Próximo
 
@@ -48,7 +50,7 @@ SOL, ZEC, LIT, PUMP, XRP, NEAR, ENA, XMR, AAVE, DOGE, FARTCOIN, UNI, BNB, TAO, V
 BNB e TAO entraram na lista do coletor (reiniciar o coletor); detalhes no fim do `HANDOFF.md`.
 **M-C, medida de custo:** pode rodar depois de 3 dias UTC completos de gravação dos 20; para BNB e
 TAO, a partir de 2026-10-13 00:00 UTC, se começarem a gravar antes da virada de 2026-10-10. Em
-paralelo, os Blocos C, D e E.
+paralelo, os Blocos D e E (o C está pronto).
 
 ## O que existe no código
 
@@ -66,7 +68,8 @@ paralelo, os Blocos C, D e E.
   de nomes da Binance, num modelo imutável com hash canônico (T-005).
 - `src/copylab/collector/` — gravador de WebSocket com reconexão, compactação em `bbo`, `book`,
   `trades` e `gaps`, status, lista de ativos e o processo (T-010 a T-014). Os segmentos brutos moram
-  em `src/copylab/storage/segments.py`. Comandos `collect`, `collect status` e `collect compact`.
+  em `src/copylab/storage/segments.py`. Comandos `collect`, `collect status` e `collect compact`. O `status` lê só os segmentos brutos que ainda existem,
+  tolera segmento renomeado no meio da leitura e mostra a cobertura por dia UTC de cada ativo.
 - `config/collector_assets.toml` — os 27 ativos do coletor. `docs/coletor.md` — roteiro de operação.
 - `src/copylab/ingestion/` — orçamento de peso e provedor da API sobre `httpx`, com os falsos da
   suíte (`fake.py`); snapshots de leaderboard e lotes; fills com paginação, cobertura, retomada e
@@ -74,11 +77,15 @@ paralelo, os Blocos C, D e E.
   guarda da janela de avaliação. Comandos `ingest leaderboard`, `ingest fills` e `ingest market`.
 - `src/copylab/selection/` — só o pool (`pool.py`, T-060) e a ordenação dos ativos candidatos
   (`assets.py`, metade de T-061). O resto do Bloco F não existe.
-- `src/copylab/{leader,sim,analytics}/` — vazios, só `__init__.py` com uma docstring que diz qual
+- `src/copylab/leader/` — o livro-razão do líder (Bloco C): `ledger.py` (passada fill a fill, posições,
+  eventos por milissegundo, quebras de continuidade, fills ignorados), `episodes.py`, `pnl.py`
+  (conferência por custo médio) e `diagnostics.py` (quebras por idade e por TWAP), com os tipos em
+  `model.py`. Lógica pura, sobre a tabela `fills`; o design 1.4 §3.5 fixa as regras.
+- `src/copylab/{sim,analytics}/` — vazios, só `__init__.py` com uma docstring que diz qual
   bloco os preenche. Vazios **de propósito** (CLAUDE.md §1).
 - `scripts/verify/` — código exploratório da verificação de dados. Fora do `mypy` e da cobertura.
 - `tests/unit/` — fumaça, `config`, `logging`, ferramentas de medição; testes de `timeutil`,
-  `clock`, `ports`, `storage`, `params`, coletor, ingestão, pool e ordenação de ativos; os quatro
+  `clock`, `ports`, `storage`, `params`, coletor, ingestão, pool e ordenação de ativos, livro-razão do líder (eventos, episódios, PnL e quebras); os quatro
   testes de arquitetura do design §2.1 (`test_architecture_read_only.py` e
   `test_architecture_boundaries.py`).
 - `docs/ingestao.md` — roteiro do M-B.
@@ -86,9 +93,10 @@ paralelo, os Blocos C, D e E.
 
 ## Números
 
-- 439 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 2 de integração
+- 478 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 2 de integração
   (60 s do WebSocket real; ingestão de 5 carteiras e de um dia de proxy de BTC), fora da suíte
   default e do CI.
-- Cobertura medida em `leader`, `selection`, `sim` e `analytics`: só `selection` tem código, com
-  100% de linhas e ramos (`pool.py` e `assets.py`). `storage`, `ports`, `params`, `timeutil` e
+- Cobertura medida em `leader`, `selection`, `sim` e `analytics`: `leader` e `selection` têm código,
+  os dois com 100% de linhas e ramos (`leader`: `ledger`, `episodes`, `pnl`, `diagnostics`, `model`;
+  `selection`: `pool.py` e `assets.py`). `storage`, `ports`, `params`, `timeutil` e
   `ingestion` não entram no piso (RNF-02), mas têm testes próprios.

@@ -1122,3 +1122,104 @@ partir de **2026-10-13 00:00 UTC**, se começarem a gravar antes da virada de 20
 Na máquina de desenvolvimento, `tests/unit/test_cli_collect.py::test_missing_data_dir_fails_with_actionable_message`
 falha se existir um `.env` com `COPYLAB_DATA_DIR` na raiz do clone; passa sem ele (e no CI). Já falhava
 antes desta mudança. Nenhuma correção feita aqui.
+
+
+---
+
+# HANDOFF — Pendências e Bloco C, livro-razão do líder (prompt 09)
+
+**Data:** 2026-10-12
+**Escopo entregue:** as cinco pendências da Parte 0 e o Bloco C (T-030 a T-032), sobre o design 1.4.
+**Não feito, de propósito:** nada de seleção, simulador ou analytics (N\* é do Bloco F); nenhum comando
+`ingest`; nenhum arquivo do clone `copylab-run` nem do diretório de dados foi tocado; o coletor da
+máquina Windows não foi atualizado.
+
+## 1. Pendências (cada uma em commit próprio, antes do Bloco C)
+
+1. **Design 1.3** (`79f1b6c`). `entrega-09/` copiado para `specs/00-plataforma/fase-1-design.md` e removido.
+   O diff é só §3.3 e o histórico. Índices e `specs/CHANGELOG.md` atualizados.
+2. **Ambiente de testes** (`7935eac`). **Não consegui reproduzir um `uv run` que desinstale o pacote.**
+   O que reproduzi: uma sincronização exata (`uv sync --only-group verify`, ou `--no-install-project`)
+   desinstala o `copylab` editável e todas as ferramentas de dev; `.venv/bin/python -c "import copylab"`
+   dá `ModuleNotFoundError: No module named 'copylab'`. Um `uv run` comum repara o ambiente sozinho, mas
+   `.venv/bin/pytest` e quem chama o interpretador direto não. A transcrição do prompt 10 não está nesta
+   máquina, então a causa exata lá é inferência. A correção: todo alvo do `Makefile` que roda ferramenta
+   do `.venv` depende de um alvo `sync` (`uv sync --all-groups --quiet`, idempotente), como o CI já faz.
+   Provado: quebrei o ambiente de propósito e `make typecheck` o consertou. `make check` roda inteiro.
+3. **Testes isolados do `.env`** (`8a9e3bc`). Causa: `test_missing_data_dir_fails_with_actionable_message`
+   fazia `chdir` para a raiz do clone, onde o `.env` do operador tem `COPYLAB_DATA_DIR`. **Pior que
+   falhar: o teste rodava `collect status` contra os dados reais** (só leitura; parava no primeiro
+   `assert`, antes de `collect compact`, que escreveria). Uma fixture `autouse` em `tests/conftest.py`
+   tira `COPYLAB_*` do ambiente, zera o cache de `get_settings()` e desliga o `env_file` de `Settings`;
+   os dois testes que exercitam o `.env` apontam para o deles. Teste novo
+   (`test_suite_ignores_the_dotenv_of_the_working_directory`), com a mutação registrada. `make check`
+   passou com o `.env` no lugar e com `COPYLAB_DATA_DIR` exportado no shell. Não havia outro teste com
+   o mesmo problema: os demais já usavam `Settings(_env_file=None)` ou `clean_env`.
+4. **Roteiro de parada do coletor** (`4f5ce26`, `docs/coletor.md` §10). Passa a ser desativar a tarefa,
+   parar, encerrar a árvore que sobrar (`taskkill /F /T`, procurando por linha de comando, pertença ou
+   não à tarefa), atualizar, reativar e iniciar, anotando os instantes de parada e de volta e o commit.
+   **Não pude rodar o roteiro: não há Windows aqui.** Os comandos PowerShell são os do Pedro, e o
+   `Get-CimInstance` com filtro por linha de comando é o que eu escreveria para achar o processo órfão;
+   confira antes de depender dele.
+5. **`collect status`** (`7a5a874`).
+   - `FileNotFoundError` num `.open` renomeado: `SegmentStore.read_live` tenta o nome de fechado e pula o
+     que foi apagado; `disk_bytes` (segmentos e tabelas) idem. Teste com listagem velha, mutação registrada.
+   - Lentidão: o status interpretava a mensagem inteira do livro de cada segmento bruto, lia as tabelas
+     inteiras e guardava todos os atrasos de negócios numa lista. Agora lê só instante, recebimento e
+     conexão dos brutos, só as colunas necessárias das tabelas, e guarda o atraso como contagem.
+     **Medida (dado sintético, 29 ativos, macOS Apple Silicon, não Windows):** 10 dias compactados + 12 h
+     de segmentos brutos: **32,8 s antes, 4,5 s depois**; 4 dias + 3 h: 8,8 s antes, 1,2 s depois. O que
+     sobra é decodificar os segmentos do dia aberto: cresce com ele (compactar todo dia é o que mantém o
+     status rápido). Um teste prova que o status sobre os brutos e sobre as tabelas compactadas dá o
+     mesmo número.
+   - Cobertura por dia UTC de cada ativo (linha `collector.status.days`). **Definição minha:** o
+     denominador de um dia encerrado é o dia inteiro, o que veio antes do primeiro livro do ativo conta
+     como não coberto, e o dia em curso usa o tempo decorrido e vem marcado como incompleto. Documentado
+     em `docs/coletor.md` §8.
+   - **Pronto para implantar, não implantado.** Chegam ao Windows quando o coletor for atualizado, pelo
+     roteiro da §10 acima. Não fiz isso.
+
+## 2. Design 1.4 (`5e39237`)
+
+Pedi quatro decisões antes de implementar, e o Pedro respondeu: (1) em HIP-3 a tolerância de
+continuidade é 10⁻⁹ × o maior entre o módulo da posição que se tinha e o tamanho do fill, e a quebra em
+HIP-3 só é contada, nunca exclui a carteira; (2) `first_seq` e `last_seq` no `Episode`; (3) campo
+`broken`, e o episódio `broken` fica fora da conferência de PnL; (4) `ignored_fills` como função própria.
+A spec foi corrigida antes do código, em commit separado. Uma precisão **não veio da pergunta**: o design
+deixava sem definição "vizinhança" e "faixa de idade" do diagnóstico (RF-ING-03 CA-03.4). Defini a
+vizinhança como fills de TWAP do mesmo ativo entre `prev_t − w` e `t + w`, e as faixas como argumentos
+de quem chama. **Confirmar.**
+
+## 3. Bloco C
+
+| Tarefa | Commit | Onde |
+|---|---|---|
+| T-030 posições, eventos, continuidade | `3a328f0` | `leader/ledger.py`, `leader/model.py` |
+| T-031 episódios e conferência de PnL | `471e8db` | `leader/episodes.py`, `leader/pnl.py` |
+| T-032 diagnóstico das quebras | `605aa00` | `leader/diagnostics.py` |
+
+- **Cobertura de `copylab.leader`: 100% de linhas e ramos** (379 linhas, 98 ramos). O pacote é lógica
+  pura; os testes de arquitetura continuam valendo e passam.
+- **Fixtures de papel**, sem dado real, com a conta de cada valor esperado em comentário. Cobrem os casos
+  obrigatórios: 256 fills no mesmo milissegundo, 10 a zero e a 3, inversão de sinal num fill, posição já
+  aberta no início da janela, fill faltante, resíduo de ponto flutuante no primeiro dex e em HIP-3, e
+  divergência de PnL logo abaixo e logo acima da tolerância.
+- **Mutações registradas**, todas executadas e restauradas (13): um evento por fill; `touched_zero` só
+  pelas pontas; cruzar o zero sem abrir o outro episódio; tolerância de continuidade frouxa; zero por
+  igualdade; HIP-3 só pelo fill; declarado zero que não fecha o episódio; comparação de PnL invertida;
+  notional pela metade; `closed_pnl` do fill que cruza contado nos dois episódios; episódio
+  pré-existente conferido; TWAP de qualquer ativo; faixa aberta à esquerda. Todas derrubaram o teste.
+- **Escolhas de implementação que o design 1.4 não fixa e que vale conferir:** `unobserved` é verdadeiro
+  se *qualquer* fill do evento revelou mudança (não só o primeiro); o fill que cruza o zero conta no
+  `n_fills` dos dois episódios; `pnl_divergence_bps` devolve `None` também quando algum `closed_pnl` do
+  episódio é nulo; um perpétuo do primeiro dex sem lote em `lots` é `DataError`; os eventos saem
+  ordenados por instante e, no empate, por ativo (ADR-0008).
+- **O que o Bloco F vai precisar saber:** F3 só deve olhar `Break.kind == "perp"` em ativo do universo; a
+  conferência de PnL (`pnl_violations`) olha todo ativo, inclusive fora do universo e HIP-3, e quem
+  decide se isso exclui a carteira é T-063. `Episode.opened_from_flat` falso e `broken` ficam fora da
+  conferência, e a seleção deve contá-los no funil.
+
+## 4. Números
+
+- 478 testes unitários (eram 439).
+- `make check` verde no clone de desenvolvimento, com o `.env` no lugar.
