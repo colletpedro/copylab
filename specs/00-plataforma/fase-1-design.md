@@ -1,7 +1,7 @@
 # Fase 1 (estudo de simulação) — Design técnico
 
 **Status:** aprovado — gate 2 em 2026-10-07
-**Versão:** 1.4
+**Versão:** 1.5
 **Data:** 2026-10-12
 **Requisitos:** `fase-1-requirements.md`, versão 1.3
 **Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (proposto)
@@ -38,6 +38,7 @@ copylab/
 ├── timeutil.py     # único módulo que converte instante em dia ou hora
 ├── clock.py        # único módulo que lê o relógio da máquina
 ├── params.py       # parâmetros pré-registrados, carregados de arquivo versionado
+├── windows.py      # Window(start, end): a janela semiaberta, em Ms, sem lógica de calendário
 ├── ports.py        # protocolo de leitura de dados e o repositório limitado pelo corte
 ├── storage/        # diretório de dados, tabelas, leitura e escrita, hash de conteúdo
 ├── ingestion/      # provedor da API, orçamento de peso, paginação, proxy da Binance
@@ -189,7 +190,7 @@ Um processo assíncrono, uma conexão, três assinaturas por ativo (melhor compr
 - **Gravação.** Cada mensagem é gravada como veio, com o instante de recebimento, em segmentos de uma hora por ativo e canal, comprimidos, com descarga periódica. Um segmento em escrita tem sufixo próprio e é renomeado ao fechar. Depois de uma queda, o segmento interrompido é lido até o último bloco íntegro.
 - **Lacunas.** Há um registro por ativo, no relógio da corretora, que é o relógio em que o simulador as consulta. Uma lacuna vai do instante da última mensagem do livro rápido antes dela ao instante da primeira depois. Há lacuna em dois casos: uma desconexão detectada entre as duas mensagens, ou mais de 10 s entre elas. Negócios e melhor compra e venda não entram na regra.
 - **Compactação.** Uma etapa separada converte os segmentos fechados de um dia nas tabelas `bbo`, `book` e `trades`, confere as contagens contra os segmentos e só então os apaga. A partir daí a tabela compactada é o registro. A primeira mensagem de cada assinatura é um retrato do passado e é descartada.
-- **Status.** Lê o registro de lacunas e os arquivos, sem falar com o processo: cobertura por ativo, latência de recebimento e projeção de disco para 45 dias.
+- **Status.** Lê o registro de lacunas e os arquivos, sem falar com o processo: cobertura por ativo, latência de recebimento e projeção de disco para 45 dias. A cobertura por dia UTC de cada ativo é a que a medida de custo usa: o denominador de um dia encerrado é o dia inteiro, o que veio antes do primeiro livro do ativo conta como não coberto, e só dias já encerrados entram na medida. O dia em que um ativo entrou no coletor fica de fora por essa regra.
 
 O coletor não tem lógica de domínio. Se a máquina dormir ou a rede cair, o resultado é uma lacuna registrada, nunca um dado inventado.
 
@@ -266,7 +267,7 @@ Regras:
 - **Posição já aberta no início da janela.** O primeiro fill de um ativo com `start_position` fora de zero cria um episódio com `opened_from_flat` falso, aberto no instante desse fill, porque o instante real da abertura não é conhecido.
 - **Mudança não observada e episódio.** O episódio recebe `broken`. Se a posição declarada é zero com um episódio aberto, ele se fecha naquele fill, que é onde se observa a posição zero, sem interpolar o instante, e o fill abre um episódio novo a partir de zero. Se a declarada tem o mesmo sinal da que se tinha, o episódio continua. Se tem sinal oposto, ou se a que se tinha era zero e a declarada não é, o aberto se fecha e abre-se um episódio com `opened_from_flat` falso, porque a abertura não foi vista. Nos dois últimos casos o episódio novo também é `broken`.
 - **Conferência de PnL.** Só para episódios abertos a partir de zero, fechados e sem `broken`. Reconstrução por custo médio, comparada com a soma de `closed_pnl` dos fills do episódio (bruto de taxa), em bps do `traded_notional` (RF-ING-04 CA-04.2). Episódio que já estava aberto no início da janela não tem custo de entrada conhecido, e o `broken` tem fill faltando: nos dois `pnl_divergence_bps` devolve `None`, o que também vale para um episódio sem `closed_pnl` interpretável em algum fill. `pnl_violations` devolve os episódios conferíveis com divergência estritamente acima de `tolerance_bps`, que o chamador lê do arquivo de parâmetros.
-- **Diagnóstico das quebras** (RF-ING-03 CA-03.4). `break_report` agrupa as quebras por idade, que é `collected_at_ms` menos `Break.t`, em faixas `[0, e₁)`, `[e₁, e₂)`, …, `[eₙ, ∞)` dadas por `age_edges_ms`, e conta em cada faixa as que têm fill de TWAP na vizinhança: algum fill do mesmo ativo com `twap_id` e instante entre `prev_t − neighbourhood_ms` e `t + neighbourhood_ms`, inclusive. A faixa e a janela são argumentos de quem chama, porque a medida é informativa e não entra no resultado do estudo.
+- **Diagnóstico das quebras** (RF-ING-03 CA-03.4). `break_report` agrupa as quebras por idade, que é `collected_at_ms` menos `Break.t`, em faixas `[0, e₁)`, `[e₁, e₂)`, …, `[eₙ, ∞)` dadas por `age_edges_ms`, e conta em cada faixa as que têm fill de TWAP na vizinhança: algum fill do mesmo ativo com `twap_id` e instante entre `prev_t − neighbourhood_ms` e `t + neighbourhood_ms`, inclusive. A faixa e a janela são argumentos de quem chama, porque a medida é informativa e não entra no resultado do estudo. O comando de relatório as passa com estes padrões, e não o `parametros.toml`: vizinhança de 1 hora de cada lado, e faixas de idade de 0 a 30, de 30 a 60, de 60 a 90 e acima de 90 dias.
 
 ### 3.6 Seleção (`copylab.selection`)
 
@@ -302,7 +303,7 @@ def check_freeze(freeze: Freeze, repo: Repository, params: Params) -> None: ... 
 |---|---|
 | F1 | `role` igual a usuário comum na tabela `roles` |
 | F2 | `account_value` do snapshot |
-| F3 | Nenhuma quebra de continuidade em ativo do universo dentro da janela; nenhum fill de perpétuo do primeiro dex com campo inválido; todo episódio do universo aberto e fechado na janela com divergência de PnL dentro da tolerância; cobertura com status `ok` |
+| F3 | Nenhuma quebra de continuidade em ativo do universo dentro da janela; nenhum fill de perpétuo do primeiro dex com campo inválido; todo episódio do universo aberto e fechado na janela com divergência de PnL dentro da tolerância; cobertura com status `ok`. `pnl_violations` olha todos os ativos, e F3 só considera os episódios de ativos do universo. Uma divergência `None` conta como não conciliada, nunca como conciliada |
 | F4 | Número de episódios do universo abertos a partir de zero e fechados dentro da janela |
 | F5 | Os 8 blocos são os 56 dias que terminam no corte. Conta o bloco em que ao menos um episódio do universo foi aberto a partir de zero |
 | F6 | Mediana da duração dos mesmos episódios de F4. As duas pontas do intervalo contam |
@@ -365,6 +366,24 @@ def run_subaccount(
 **Cotação e slippage.** O motor aplica o slippage do ativo a todos os níveis da escada, contra o seguidor, antes de qualquer conta. A cotação de um lado é o preço do primeiro nível já com slippage. Na Rota B o mapa de slippage é vazio, porque o livro já é o preço real. Na comparação de fontes de RF-SIM-03 CA-03.4, a perna do proxy usa o slippage primário congelado da Rota A, e a perna do livro, nenhum.
 
 **`SubaccountResult`** traz as ordens, os pagamentos de funding, a curva diária de patrimônio, a alavancagem máxima observada e o instante dela, os contadores de não cópia, o estado final, os eventos pendentes e a marca de conta congelada.
+
+**Precisões do Bloco D (1.5).**
+
+- **Janela e universo.** `Window(start, end)` mora em `copylab/windows.py`, semiaberta, em `Ms`, sem lógica de calendário. `run_subaccount` recebe `universe: AbstractSet[str]`, os nomes dos ativos; o `Universe` da seleção (T-061) fornece `.coins`, e `sim` não importa `selection`. Evento de ativo fora do universo não gera ordem.
+- **Cursor e ligação.** O laço cria um `Cursor`, que só ele avança, e só para a frente (`SimulationError` se recuar). As entradas de informação são dados sem método de leitura: `LeaderTape`, `FundingTable` e `PriceFeed`. `bind(cursor_view)` devolve a visão presa ao cursor, com o único acesso de leitura que existe: `BoundTape` (`until`, `next_wake`), `BoundFunding` (`rate`) e `PriceSource` (os quatro métodos de cima). `CursorView` só lê. `run_subaccount` recebe as três entradas soltas e as prende ao seu cursor. `ladder`, `mark` e `rate` levantam `LookaheadError` para instante ou hora além do cursor, e `until(t)` para `t` acima do cursor menos o atraso. `until` devolve os eventos com instante até `t`, em ordem de instante e ativo; `next_wake(depois)` e `available_from` devolvem só instantes.
+- **Instantes do laço.** Funding nas horas cheias `H` com `início ≤ H < fim`. Amostra de patrimônio no início, em cada meia-noite UTC estritamente dentro da janela e no fim, sem repetir o início quando ele é uma meia-noite. O instante em que o laço lê um evento é o instante nominal `t + Δ`. Execuções do mesmo instante seguem a ordem do instante do evento e, no empate, a do ativo, venham de evento lido agora ou de evento que esperou preço. O evento cujo instante de execução não existe, ou não é anterior ao fim, fica pendente, e o laço o conta no fim a partir do que não executou.
+- **`ProxySource`.** `available_from(c, t)`, `ladder`, `mark` e `horizon` como na Fonte da Rota A, com a escada de um nível só e tamanho infinito. `mark(c, t)` sem nenhum segundo anterior é `DataError`. `horizon()` é o início do segundo mais avançado cujo preço foi lido por `ladder`; o teste de mutação só altera segundos que começam depois dele e depois de `c + Δ`.
+- **Contabilidade.** Como em §5. O PnL realizado, as taxas e o funding da identidade de conciliação são recalculados da lista de ordens e da de pagamentos, repetindo o custo médio, sem ler o saldo. A tolerância é 1e-9 relativa à maior das escalas em jogo, com piso de 1, e a identidade violada é `SimulationError`.
+- **Patrimônio de dimensionamento.** `P₀` e todas as posições dos demais ativos são marcados com `mark` em `τ`, e não com o preço da escada.
+- **Reduções do passo 6.** O tamanho é arredondado para baixo ao lote e limitado ao módulo da posição. A redução que zera a posição executa mesmo abaixo da ordem mínima. Uma redução não enviada por falta de observação de preço em `τ`, ou por cair abaixo do mínimo, é contada, e o excesso que ela deixa impede aumentos pelo próprio passo 8.
+- **Limite do passo 8 com mais de um nível.** O maior número de lotes, até o pedido, que satisfaz a pós-condição, procurado por bisseção, com o preço médio da ordem simulada sobre a escada que resta. Com um nível só, é a forma fechada do passo.
+- **Escada consumida.** Cada par (ativo, instante de execução, lado) tem uma escada cujo consumo persiste entre as ordens do mesmo instante, venham de eventos diferentes ou do mesmo evento. O slippage entra no preço de cada nível antes de qualquer conta.
+- **Ordem que zera.** O tamanho que fecha a posição inteira não é arredondado ao lote, porque a posição já é múltiplo dele, e não é cortado pelo mínimo. Na inversão, o fechamento sai inteiro e só a abertura passa pelo mínimo e pelo teto.
+- **Motivos de não cópia** (RF-ANA-04), os cinco do laço: abaixo do mínimo, teto atingido, profundidade excedida, posição anterior à janela (evento de ativo ainda não rastreado, fração 1) e pendente no fim (fração 1). Para um evento cujo ativo é rastreado, a fração é `1 − executado / pedido`, com o pedido calculado com `f = 1`, sem mínimo, lote nem profundidade, e o motivo é a primeira restrição que cortou, na ordem teto, mínimo, profundidade. Corte só de arredondamento ao lote não tem motivo. Contam-se eventos e notional.
+- **Alavancagem e excesso.** A alavancagem observada é a exposição bruta sobre o patrimônio, medida depois de cada ocorrência, e o resultado guarda o maior valor e o instante. O excesso sobre o teto conta as execuções que terminaram com exposição acima de `teto × patrimônio` (tolerância relativa de 1e-9) e guarda o maior em dólares e em fração do patrimônio.
+- **Congelamento.** Patrimônio não positivo em qualquer marcação congela a subconta: o laço termina naquele instante, o patrimônio é o valor real, e a curva termina nesse ponto. Posições abertas ficam como estão.
+- **`SubaccountResult`.** Ordens (instante do evento, nominal, de execução, ativo, lado, tamanho pedido e executado, preço médio, taxa, motivo), pagamentos de funding, curva de patrimônio, alavancagem máxima e instante, excesso sobre o teto, contadores de não cópia, contadores de redução não enviada, mudanças não observadas incorporadas, execuções atrasadas, posições finais, PnL realizado e não realizado, taxas, funding, pendentes, `frozen` e o instante do congelamento.
+
 
 ### 3.8 Analytics (`copylab.analytics`)
 
@@ -468,11 +487,11 @@ O patrimônio é marcado em toda ocorrência. É nessas marcações que se detec
 
 Cada evento do líder gera uma execução (ADR-0008). Para um evento em `c` no instante `t`, o instante nominal é `t + Δ`, e a execução acontece em `τ`, o primeiro instante a partir dele em que a fonte de preço tem observação de `c`. Quase sempre os dois coincidem. Quando não coincidem, nada é contabilizado antes de `τ`, a execução usa o patrimônio e os preços de `τ`, e o atraso efetivo fica registrado (RF-SIM-01 CA-01.5). Se `τ` não existe ou não é anterior ao fim da janela, o evento fica pendente.
 
-1. **Visão do líder.** O seguidor conhece o líder pelos eventos cujas execuções já foram processadas, mais o evento desta execução. Em cada ativo vale a posição do último evento processado. Um ativo passa a ser rastreado no primeiro evento processado, dentro da janela, em que a posição do líder nele toca o zero: parte de zero, chega a zero ou cruza o zero. Até lá o alvo nele é zero. Variante só compras: posição negativa conta como zero.
+1. **Visão do líder.** O seguidor conhece o líder pelos eventos cujas execuções já foram processadas, mais o evento desta execução. Em cada ativo vale a posição do último evento processado. Um ativo passa a ser rastreado no primeiro evento processado, dentro da janela, em que a posição do líder nele toca o zero: parte de zero, chega a zero ou cruza o zero. Até lá o alvo nele é zero.
 2. **Patrimônio.** `P₀` é o patrimônio da subconta em `τ`, à marcação. Se for ≤ 0, a subconta congela e o laço termina.
 3. **Razões.** Para cada ativo rastreado `j`, com a posição e o preço do último fill que estão na visão: `r_j = posição_j × preço_j / N*`.
 4. **Fator do teto.** `g = pico × Σ|r_j|` e `f = min(1, teto / g)`.
-5. **Alvos.** `alvo_j = pico × f × r_j × P₀`, em dólares, com sinal. A soma dos módulos nunca passa de `teto × P₀`.
+5. **Alvos.** `alvo_j = pico × f × r_j × P₀`, em dólares, com sinal. A soma dos módulos nunca passa de `teto × P₀`. Variante só compras (RF-SIM-02 CA-02.6, ADR-0002): todo alvo negativo vira zero, depois do fator `f`, que continua calculado com todos os ativos. O resto do cálculo é idêntico, e os longs ficam do tamanho que têm na cópia completa. Os requisitos prevalecem sobre a redação anterior deste passo, que cortava a posição do líder antes do fator.
 6. **Reduções exigidas pelo teto.** A exposição projetada é a soma das posições atuais dos demais ativos, à marcação, mais o módulo de `alvo_c`. Se ela passa de `teto × P₀`, a diferença é o excesso `E`. Cada ativo `j ≠ c` cuja posição atual, à marcação, excede em módulo o seu alvo tem uma sobra `s_j`, e `S` é a soma das sobras. Alvo de sinal contrário ao da posição conta como zero. Cada um desses ativos recebe uma redução de `s_j × E / S` dólares, convertida em tamanho pela cotação do lado que reduz. É o mínimo que devolve a carteira ao teto, repartido em proporção: `E` nunca passa de `S`, e uma redução nunca cruza o zero. A ordem é a alfabética. O gatilho é a exposição real da subconta, e não o fator `f`: uma posição que cresceu porque o preço andou também dispara a redução. Se a fonte de preço não tem observação de `j` em `τ`, a redução não é enviada e é contada, e o passo 8 impede aumentos enquanto o excesso durar.
 7. **Ordem em `c`.** O lado sai da comparação entre `alvo_c` e a posição atual à marcação. Com a cotação desse lado, o tamanho-alvo é `alvo_c / cotação`. Se a diferença para o tamanho atual não tem o sinal do lado, não há ordem. A ordem tem uma parte que reduz a posição atual e, se o alvo vai além dela ou cruza o zero, uma parte que aumenta. Quando cruza o zero, são duas ordens no mesmo instante: o fechamento e a abertura.
 8. **Limite da parte que aumenta.** Ela é o maior múltiplo do lote, até o tamanho pedido, para o qual o estado depois da ordem satisfaz `exposição bruta ≤ teto × patrimônio`, com a posição inteira em `c`, a que já existia e a nova, avaliada ao preço médio da ordem, tanto no patrimônio quanto na exposição, os demais ativos à marcação e a taxa da ordem já descontada. Com um nível só de preço, isso equivale a `X ≤ (teto × P − O) / (1 + teto × taxa)`, em que `X` é o notional adicional, e `P` e `O` são o patrimônio e a exposição bruta depois das reduções, com `c` à cotação. O que não coube conta como "teto atingido".
@@ -700,7 +719,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | RF-SIM-02 | CA-02.3 | `test_preexisting_leader_position_is_ignored_until_flat`; `test_tracking_starts_when_leader_position_touches_zero` |
 | RF-SIM-02 | CA-02.4 | `test_below_minimum_order_is_skipped_and_delta_persists`; `test_order_size_is_floored_to_lot` |
 | RF-SIM-02 | CA-02.5 | `test_full_close_executes_below_minimum` |
-| RF-SIM-02 | CA-02.6 | `test_long_only_variant_equals_engine_with_shorts_dropped` |
+| RF-SIM-02 | CA-02.6 | `test_long_only_variant_equals_engine_with_shorts_dropped`; `test_long_only_keeps_longs_at_full_copy_size_when_cap_was_active` |
 | RF-SIM-02 | CA-02.7 | `test_gross_exposure_never_exceeds_cap_after_event`; `test_drifted_exposure_triggers_cap_reductions`; `test_unsendable_cap_reduction_is_counted_and_blocks_increases`; `test_cap_reduction_without_price_is_counted` |
 | RF-SIM-02 | CA-02.8 | `test_unobserved_position_change_is_absorbed_at_next_fill_and_counted` |
 | RF-SIM-03 | CA-03.1 | `test_route_a_uses_worst_price_of_execution_second` |
@@ -712,6 +731,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | RF-SIM-05 | CA-05.1 | `test_funding_payment_sign_and_amount` |
 | RF-SIM-05 | CA-05.2 | `test_no_position_no_funding` |
 | RF-SIM-05 | CA-05.3 | `test_funding_closed_form_ten_hours` |
+| RF-SIM-04 | execução (§3.7) | `test_order_walks_two_ladder_levels_and_consumption_persists`; `test_sign_flip_closes_then_opens_with_minimum_on_the_opening_only` |
 | RF-SIM-06 | CA-06.1 | `test_equity_is_cash_plus_unrealized_at_mark` |
 | RF-SIM-06 | CA-06.2 | `test_reconciliation_identity_closes` |
 | RF-SIM-06 | CA-06.3 | `test_open_position_at_end_is_marked_and_reported_separately` |
@@ -775,6 +795,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.5 | 2026-10-12 | Respostas do Pedro às perguntas do Bloco C (valores padrão do diagnóstico de TWAP, cobertura por dia, `None` em T-063, escopo de `pnl_violations`) e precisões do Bloco D em §3.7: `Window` e `universe` (nomes), cursor e ligação das entradas, instantes do laço, `ProxySource`, escada consumida, motivos de não cópia, alavancagem, congelamento. Corrige o passo 1 de §4.3: a variante só compras zera o alvo depois do fator, como os requisitos e o ADR-0002 dizem |
 | 1.4 | 2026-10-12 | Precisões do Bloco C em §3.5, decididas pelo Pedro: tolerância de continuidade em HIP-3 (10⁻⁹ × o maior entre a posição que se tinha e o fill), `first_seq` e `last_seq` e `broken` em `Episode`, `Break`, `ignored_fills`, `pnl_violations` e `break_report`, e as regras de episódio perante mudança não observada. O que o design 1.3 fixava não muda |
 | 1.3 | 2026-10-08 | O percurso dos ativos candidatos segue RF-SEL-08 (ii): os 20 de maior notional entre os que têm equivalente na Binance, sem filtrar por fills antes; o número de fills só decide de quem se baixa o proxy completo (§3.3). Decisão do Bloco B, aceita |
 | 1.2 | 2026-10-07 | Decisões do Bloco A incorporadas: tabelas do coletor particionadas pelo dia de recebimento, com leitura pelo instante da corretora nas partições vizinhas, e coluna `conn_ms` (§3.2) |

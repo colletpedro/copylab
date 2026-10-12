@@ -4,6 +4,10 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ## 2026-10-12
 
+### fase-1-design 1.5
+
+Respostas às perguntas do Bloco C: o diagnóstico de TWAP usa vizinhança de 1 hora e faixas de 0 a 30, 30 a 60, 60 a 90 e acima de 90 dias, como padrão do comando de relatório (§3.5); a cobertura por dia é a definição do status, e só entram dias encerrados (§3.4); uma divergência de PnL `None` conta como não conciliada, e F3 só considera episódios de ativos do universo (§3.6). Precisões do Bloco D (§3.7): `Window` em `copylab/windows.py` e `universe` como conjunto de nomes; cursor, `bind` e entradas sem método de leitura; instantes e ordem do laço; escada consumida entre ordens do mesmo instante; limite do passo 8 por bisseção; motivos de não cópia; alavancagem máxima; congelamento. **Correção do passo 1 de §4.3:** a variante só compras zera o alvo negativo depois do fator do teto (RF-SIM-02 CA-02.6, ADR-0002), e não a posição do líder antes dele. Decidido pelo Pedro, porque os requisitos prevalecem sobre o design.
+
 ### fase-1-design 1.4
 
 Precisões do Bloco C (§3.5), decididas pelo Pedro na pergunta do prompt 09. (1) Em HIP-3, onde o lote não está no `meta`, a tolerância de continuidade é 10⁻⁹ × o maior entre o módulo da posição que se tinha e o tamanho do fill; a quebra em HIP-3 é contada e reportada, e nunca torna a carteira inelegível. (2) `Episode` ganha `first_seq` e `last_seq`, para `pnl_divergence_bps` achar os fills do episódio (o fill que cruza o zero é o último de um e o primeiro do outro), e `broken`, para o episódio em que entrou uma mudança não observada, que fica fora da conferência de PnL. (3) Contrato novo: `Break`, `ignored_fills`, `pnl_violations` e `break_report`, e as regras de episódio perante mudança não observada. O que o 1.3 fixava não muda: acrescentam-se campos e funções. O diagnóstico de TWAP e a faixa de idade, que o design deixava sem definição, entram como a vizinhança no mesmo ativo e faixas dadas por quem chama; é a única precisão que não veio da pergunta.
