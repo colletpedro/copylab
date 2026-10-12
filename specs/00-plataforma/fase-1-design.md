@@ -1,8 +1,8 @@
 # Fase 1 (estudo de simulação) — Design técnico
 
 **Status:** aprovado — gate 2 em 2026-10-07
-**Versão:** 1.3
-**Data:** 2026-10-07
+**Versão:** 1.4
+**Data:** 2026-10-12
 **Requisitos:** `fase-1-requirements.md`, versão 1.3
 **Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (proposto)
 
@@ -200,11 +200,13 @@ Os dados chegam à máquina de análise por cópia do diretório das tabelas com
 Transforma fills de perpétuos em posições, eventos e episódios. É usado pela seleção e pelo simulador, e por isso é um pacote próprio, com o mesmo piso de cobertura.
 
 ```python
+Kind = Literal["perp", "hip3"]         # perpétuo do primeiro dex ou HIP-3; as constantes de ingestion
+
 @dataclass(frozen=True, slots=True)
 class LeaderEvent:
     t: Ms
     coin: str
-    kind: Kind             # perpétuo do primeiro dex ou HIP-3
+    kind: Kind
     prev_position: float   # posição declarada antes do primeiro fill do evento
     position: float        # posição depois do último fill do evento, com sinal
     touched_zero: bool     # dentro do evento, a posição partiu de zero, chegou a zero ou cruzou o zero
@@ -220,25 +222,51 @@ class Episode:
     closed: Ms | None
     side: int                      # +1 ou -1
     opened_from_flat: bool         # falso quando a posição já existia no início da janela
+    broken: bool                   # uma mudança não observada entrou no episódio ou o criou
     traded_notional: float
     opening_notional: float        # fills que aumentam o módulo da posição
     opening_taker_notional: float  # idem, só com crossed = true
     n_fills: int
+    first_seq: int                 # seq do primeiro e do último fill do episódio, para achá-los
+    last_seq: int
+
+@dataclass(frozen=True, slots=True)
+class Break:
+    t: Ms                  # instante do fill que revela a quebra, o segundo do par
+    prev_t: Ms             # instante do fill anterior do ativo
+    coin: str
+    kind: Kind
+    expected: float        # posição que se tinha: a do fim do fill anterior
+    declared: float        # start_position do fill que revela
 
 def build_events(fills: pl.DataFrame, lots: Mapping[str, float]) -> list[LeaderEvent]: ...
 def build_episodes(fills: pl.DataFrame, lots: Mapping[str, float]) -> list[Episode]: ...
 def continuity_breaks(fills: pl.DataFrame, lots: Mapping[str, float]) -> list[Break]: ...
-def pnl_divergence_bps(fills: pl.DataFrame, episode: Episode) -> float: ...
+def ignored_fills(fills: pl.DataFrame) -> int: ...
+def pnl_divergence_bps(fills: pl.DataFrame, episode: Episode) -> float | None: ...
+def pnl_violations(
+    fills: pl.DataFrame, episodes: Sequence[Episode], tolerance_bps: float
+) -> list[tuple[Episode, float]]: ...
+def break_report(
+    breaks: Sequence[Break], fills: pl.DataFrame, collected_at_ms: Ms,
+    *, neighbourhood_ms: int, age_edges_ms: Sequence[int],
+) -> BreakReport: ...
 ```
+
+Entrada: os fills de uma carteira, com as colunas da tabela `fills`, e `lots`, o tamanho do lote de cada perpétuo do primeiro dex (10 elevado a `-sz_decimals`, do `meta`). O pacote ordena por `time_ms` e `seq` e processa cada ativo em separado. Perpétuo do primeiro dex sem lote em `lots` é `DataError`. Eventos saem em ordem de instante e, no empate, a alfabética do ativo (ADR-0008).
 
 Regras:
 
-- **Abrangência.** Posições e eventos são reconstruídos para todos os perpétuos, do primeiro dex e HIP-3, porque o filtro F8 conta os dois. O simulador só age sobre os do universo. Um fill de HIP-3 sem campo de posição interpretável é ignorado e contado.
-- **Posição.** Para cada fill, posição depois = `start_position` mais `sz` com o sinal do lado. O `start_position` do fill é a verdade: se ele difere da posição que se tinha em mais de um lote, que é a tolerância de RF-ING-03 CA-03.1, houve mudança não observada (RF-SIM-02 CA-02.8).
-- **Um evento por líder, ativo e milissegundo.** Os fills de um mesmo milissegundo viram um evento, com a posição final. Uma ordem do líder dividida em 256 fills gera uma decisão do seguidor, não 256. `touched_zero` guarda o que a agregação esconderia: uma posição que vai de 10 a zero e a 3 no mesmo milissegundo fechou um episódio e abriu outro.
-- **Zero.** Posição com módulo abaixo de meio lote é zero. Para HIP-3, cujo lote não está no `meta` coletado, a posição depois de um fill é zero quando o módulo dela é menor que 10⁻⁹ vezes o tamanho desse fill.
-- **Episódio.** De zero a zero, construído fill a fill, não evento a evento. Um fill que cruza o zero encerra um episódio e abre outro no mesmo instante, com o tamanho dividido entre os dois. O `closed_pnl` desse fill pertence ao episódio que fecha.
-- **Conferência de PnL.** Só para episódios abertos a partir de zero e fechados dentro da janela. Reconstrução por custo médio, comparada com a soma de `closed_pnl`, em bps do notional negociado (RF-ING-04 CA-04.2). Episódio que já estava aberto no início da janela não tem custo de entrada conhecido e fica fora.
+- **Abrangência.** Posições e eventos são reconstruídos para todos os perpétuos, do primeiro dex e HIP-3, porque o filtro F8 conta os dois. Spot, tokens de resultado e outros não entram. O simulador só age sobre os do universo. Um fill de perpétuo sem preço, tamanho, lado ou posição interpretável é ignorado, e `ignored_fills` diz quantos foram (o do primeiro dex já torna a carteira inelegível na ingestão, RF-ING-02 CA-02.5).
+- **Posição.** Para cada fill, posição depois = `start_position` mais `sz` com o sinal do lado (`B` positivo, `A` negativo). O `start_position` do fill é a verdade: se ele difere da posição que se tinha (a do fim do fill anterior do mesmo ativo) além da tolerância, houve mudança não observada (RF-SIM-02 CA-02.8), e a posição passa a ser a declarada. Nada é interpolado nem remendado.
+- **Tolerância da continuidade** (RF-ING-03 CA-03.1). No primeiro dex, um lote: há quebra quando a diferença passa de `lote × (1 + 10⁻⁹)`. Em HIP-3, cujo lote não está no `meta` coletado, 10⁻⁹ × o maior entre o módulo da posição que se tinha e o tamanho do fill: o erro de ponto flutuante cresce com a posição acumulada, e não só com o fill da vez. A quebra em HIP-3 é contada e reportada (`Break.kind`), e nunca torna a carteira inelegível, porque F3 vale só para ativos do universo. O primeiro fill de um ativo não tem posição anterior e não pode quebrar.
+- **Um evento por líder, ativo e milissegundo.** Os fills de um mesmo milissegundo viram um evento, com a posição final. Uma ordem do líder dividida em 256 fills gera uma decisão do seguidor, não 256. `touched_zero` guarda o que a agregação esconderia: uma posição que vai de 10 a zero e a 3 no mesmo milissegundo fechou um episódio e abriu outro. Vale para qualquer fill do evento cuja posição antes ou depois é zero, ou que cruza o zero. `unobserved` é verdadeiro se algum fill do evento revelou mudança não observada. `prev_position` e `position` saem como 0,0 exato quando são zero pela regra abaixo.
+- **Zero.** Posição com módulo abaixo de meio lote é zero. Para HIP-3, a posição é zero quando o módulo dela é menor que 10⁻⁹ vezes o tamanho do fill que a produziu (ou a precede). O resíduo de ponto flutuante depois de fechar é, portanto, zero nos dois casos.
+- **Episódio.** De zero a zero, construído fill a fill, não evento a evento. Um fill que cruza o zero encerra um episódio e abre outro no mesmo instante, com o tamanho dividido entre os dois: a parte que fecha, de tamanho igual ao módulo da posição antes, vai para o que fecha, e o resto, para o que abre. O `closed_pnl` desse fill pertence ao episódio que fecha. O fill que cruza o zero conta no `n_fills` dos dois, e é o `last_seq` de um e o `first_seq` do outro. `traded_notional` soma `px × tamanho` das partes que o episódio recebe; `opening_notional`, só das que aumentam o módulo da posição.
+- **Posição já aberta no início da janela.** O primeiro fill de um ativo com `start_position` fora de zero cria um episódio com `opened_from_flat` falso, aberto no instante desse fill, porque o instante real da abertura não é conhecido.
+- **Mudança não observada e episódio.** O episódio recebe `broken`. Se a posição declarada é zero com um episódio aberto, ele se fecha naquele fill, que é onde se observa a posição zero, sem interpolar o instante, e o fill abre um episódio novo a partir de zero. Se a declarada tem o mesmo sinal da que se tinha, o episódio continua. Se tem sinal oposto, ou se a que se tinha era zero e a declarada não é, o aberto se fecha e abre-se um episódio com `opened_from_flat` falso, porque a abertura não foi vista. Nos dois últimos casos o episódio novo também é `broken`.
+- **Conferência de PnL.** Só para episódios abertos a partir de zero, fechados e sem `broken`. Reconstrução por custo médio, comparada com a soma de `closed_pnl` dos fills do episódio (bruto de taxa), em bps do `traded_notional` (RF-ING-04 CA-04.2). Episódio que já estava aberto no início da janela não tem custo de entrada conhecido, e o `broken` tem fill faltando: nos dois `pnl_divergence_bps` devolve `None`, o que também vale para um episódio sem `closed_pnl` interpretável em algum fill. `pnl_violations` devolve os episódios conferíveis com divergência estritamente acima de `tolerance_bps`, que o chamador lê do arquivo de parâmetros.
+- **Diagnóstico das quebras** (RF-ING-03 CA-03.4). `break_report` agrupa as quebras por idade, que é `collected_at_ms` menos `Break.t`, em faixas `[0, e₁)`, `[e₁, e₂)`, …, `[eₙ, ∞)` dadas por `age_edges_ms`, e conta em cada faixa as que têm fill de TWAP na vizinhança: algum fill do mesmo ativo com `twap_id` e instante entre `prev_t − neighbourhood_ms` e `t + neighbourhood_ms`, inclusive. A faixa e a janela são argumentos de quem chama, porque a medida é informativa e não entra no resultado do estudo.
 
 ### 3.6 Seleção (`copylab.selection`)
 
@@ -595,7 +623,8 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 | RF-ING-03 | CA-03.2 | `test_break_in_selection_window_makes_wallet_ineligible` |
 | RF-ING-03 | CA-03.3 | `test_break_in_evaluation_window_does_not_exclude_cohort_wallet` |
 | RF-ING-03 | CA-03.4 | `test_break_report_groups_by_age_and_twap_neighbourhood` |
-| RF-ING-04 | CA-04.1 | `test_episode_runs_flat_to_flat_and_flip_splits_at_same_instant` |
+| RF-ING-03 | CA-03.1 (HIP-3, §3.5) | `test_hip3_continuity_tolerance_scales_with_position_and_fill`; `test_hip3_break_is_reported_with_its_kind` |
+| RF-ING-04 | CA-04.1 | `test_episode_runs_flat_to_flat_and_flip_splits_at_same_instant`; `test_broken_episode_is_closed_or_reopened_without_interpolation`; `test_ignored_fills_are_counted` |
 | RF-ING-04 | CA-04.2 | `test_pnl_divergence_over_10bps_of_notional_makes_wallet_ineligible`; `test_pnl_check_skips_episodes_open_at_window_start` |
 | RF-ING-05 | CA-05.1 | `test_funding_record_is_floored_to_hour_and_missing_hour_fails` |
 | RF-ING-05 | CA-05.2 | `test_lot_size_is_stored_with_collection_instant` |
@@ -746,6 +775,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.4 | 2026-10-12 | Precisões do Bloco C em §3.5, decididas pelo Pedro: tolerância de continuidade em HIP-3 (10⁻⁹ × o maior entre a posição que se tinha e o fill), `first_seq` e `last_seq` e `broken` em `Episode`, `Break`, `ignored_fills`, `pnl_violations` e `break_report`, e as regras de episódio perante mudança não observada. O que o design 1.3 fixava não muda |
 | 1.3 | 2026-10-08 | O percurso dos ativos candidatos segue RF-SEL-08 (ii): os 20 de maior notional entre os que têm equivalente na Binance, sem filtrar por fills antes; o número de fills só decide de quem se baixa o proxy completo (§3.3). Decisão do Bloco B, aceita |
 | 1.2 | 2026-10-07 | Decisões do Bloco A incorporadas: tabelas do coletor particionadas pelo dia de recebimento, com leitura pelo instante da corretora nas partições vizinhas, e coluna `conn_ms` (§3.2) |
 | 1.1 | 2026-10-07 | Respostas às perguntas do Bloco 0. Regra de onde mora cada número (§3.9). Limiares inclusivos (§3.6). `numpy` permitido em `storage` para o hash de conteúdo (§2.2) |

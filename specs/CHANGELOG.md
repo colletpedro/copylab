@@ -2,6 +2,12 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versionamento por spec, não global.
 
+## 2026-10-12
+
+### fase-1-design 1.4
+
+Precisões do Bloco C (§3.5), decididas pelo Pedro na pergunta do prompt 09. (1) Em HIP-3, onde o lote não está no `meta`, a tolerância de continuidade é 10⁻⁹ × o maior entre o módulo da posição que se tinha e o tamanho do fill; a quebra em HIP-3 é contada e reportada, e nunca torna a carteira inelegível. (2) `Episode` ganha `first_seq` e `last_seq`, para `pnl_divergence_bps` achar os fills do episódio (o fill que cruza o zero é o último de um e o primeiro do outro), e `broken`, para o episódio em que entrou uma mudança não observada, que fica fora da conferência de PnL. (3) Contrato novo: `Break`, `ignored_fills`, `pnl_violations` e `break_report`, e as regras de episódio perante mudança não observada. O que o 1.3 fixava não muda: acrescentam-se campos e funções. O diagnóstico de TWAP e a faixa de idade, que o design deixava sem definição, entram como a vizinhança no mesmo ativo e faixas dadas por quem chama; é a única precisão que não veio da pergunta.
+
 ## 2026-10-08
 
 ### fase-1-design 1.3

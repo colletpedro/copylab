@@ -17,7 +17,7 @@ Cada transição é um gate explícito. Um gate reprovado volta para a etapa ant
 
 | Spec | Versão | Requisitos | Design | Tarefas | Implementada |
 |---|---|---|---|---|---|
-| `00-plataforma/fase-1` | 1.3 | ✅ 1.3 aprovada em 2026-10-07 (gate de design) | ✅ 1.3 (1.0 aprovado em 2026-10-07, gate 2; 1.1 responde as perguntas do Bloco 0; 1.2 incorpora as decisões do Bloco A; 1.3 registra o percurso dos candidatos do Bloco B) | ✅ 0.1 aprovado em 2026-10-07 (gate 3, `fase-1-tasks.md`) | 🟡 em andamento: Bloco 0 concluído; Bloco A (coletor) com código pronto, aguardando M-A; Bloco B (ingestão) com código pronto, aguardando M-B |
+| `00-plataforma/fase-1` | 1.3 | ✅ 1.3 aprovada em 2026-10-07 (gate de design) | ✅ 1.4 (1.0 aprovado em 2026-10-07, gate 2; 1.1 responde as perguntas do Bloco 0; 1.2 incorpora as decisões do Bloco A; 1.3 registra o percurso dos candidatos do Bloco B; 1.4 precisa o livro-razão do líder, Bloco C) | ✅ 0.1 aprovado em 2026-10-07 (gate 3, `fase-1-tasks.md`) | 🟡 em andamento: Bloco 0 concluído; Bloco A (coletor) com código pronto, aguardando M-A; Bloco B (ingestão) com código pronto, aguardando M-B |
 
 ## ADRs
 

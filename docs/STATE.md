@@ -27,7 +27,7 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | Fundação (Fase 0) | ✅ `make check` verde; CI verde no GitHub |
 | Verificação de dados (§4.1) | ✅ RF-VER-01 a 04 executadas: 8 `ok`, 1 `a emendar`, 2 `reprova`, 1 `não medido` |
 | Verificação complementar (RF-VER-05) | ✅ executada em 2026-10-06: 4 `ok` |
-| Design da Fase 1 | ✅ 1.3 (1.0 aprovado no gate 2, 2026-10-07; 1.1 responde as perguntas do Bloco 0; 1.2 incorpora as decisões do Bloco A; 1.3 registra o percurso dos candidatos do Bloco B) |
+| Design da Fase 1 | ✅ 1.4 (1.0 aprovado no gate 2, 2026-10-07; 1.1 responde as perguntas do Bloco 0; 1.2 incorpora as decisões do Bloco A; 1.3 registra o percurso dos candidatos do Bloco B; 1.4 precisa o livro-razão do líder, Bloco C) |
 | Plano de tarefas | ✅ 0.1 aprovado (gate 3, 2026-10-07) |
 | Bloco 0 — base (T-001 a T-005) | ✅ implementado em 2026-10-07; `make check` e CI verdes |
 | Bloco A — coletor (T-010 a T-014) | ✅ código pronto e adaptado ao Windows nativo; `make check`, integração e CI (inclusive Windows) verdes; roteiro para Windows escrito, com a seção de serviço ainda não executada numa máquina Windows |
