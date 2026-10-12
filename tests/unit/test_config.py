@@ -68,17 +68,35 @@ def test_settings_are_immutable(settings: Settings) -> None:
 
 @pytest.mark.unit
 def test_reads_dotenv_from_working_directory(workdir: Path, clean_env: pytest.MonkeyPatch) -> None:
-    """Sem variável no processo, o `.env` do diretório corrente vale."""
-    (workdir / ".env").write_text("COPYLAB_LOG_LEVEL=ERROR\n", encoding="utf-8")
-    assert Settings().log_level == "ERROR"
+    """Sem variável no processo, o arquivo de ambiente indicado vale. A suíte desliga o
+    `.env` padrão (conftest), então o teste aponta para o dele."""
+    env_file = workdir / ".env"
+    env_file.write_text("COPYLAB_LOG_LEVEL=ERROR\n", encoding="utf-8")
+    assert Settings(_env_file=env_file).log_level == "ERROR"
+
+
+@pytest.mark.unit
+def test_suite_ignores_the_dotenv_of_the_working_directory(workdir: Path) -> None:
+    """Um `.env` no diretório corrente não chega a `Settings()` dentro da suíte: o resultado
+    de um teste não depende do `.env` de quem o roda (o do operador da ingestão traz
+    `COPYLAB_DATA_DIR`).
+
+    Mutação registrada: tirar `setitem(Settings.model_config, "env_file", None)` da fixture
+    `_isolate_settings_from_the_machine` (conftest) faz este teste cair, com `data_dir`
+    igual ao do arquivo, e faz cair `test_missing_data_dir_fails_with_actionable_message`
+    quando há um `.env` com `COPYLAB_DATA_DIR` na raiz do clone.
+    """
+    (workdir / ".env").write_text("COPYLAB_DATA_DIR=/algum/lugar\n", encoding="utf-8")
+    assert Settings().data_dir is None
 
 
 @pytest.mark.unit
 def test_process_environment_wins_over_dotenv(workdir: Path, clean_env: pytest.MonkeyPatch) -> None:
     """Variável do processo tem precedência sobre o `.env`."""
-    (workdir / ".env").write_text("COPYLAB_LOG_LEVEL=ERROR\n", encoding="utf-8")
+    env_file = workdir / ".env"
+    env_file.write_text("COPYLAB_LOG_LEVEL=ERROR\n", encoding="utf-8")
     clean_env.setenv("COPYLAB_LOG_LEVEL", "WARNING")
-    assert Settings().log_level == "WARNING"
+    assert Settings(_env_file=env_file).log_level == "WARNING"
 
 
 @pytest.mark.unit

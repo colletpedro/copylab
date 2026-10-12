@@ -46,6 +46,19 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[pytest.MonkeyPatch]:
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_settings_from_the_machine(clean_env: pytest.MonkeyPatch) -> None:
+    """Nenhum teste lê o ambiente nem o `.env` de quem roda a suíte.
+
+    Sem isto, um `.env` na raiz do clone com `COPYLAB_DATA_DIR` (o de quem opera a
+    ingestão) mudava o resultado de teste que chama a CLI, e uma variável `COPYLAB_*`
+    exportada no shell fazia o mesmo. Tira do ambiente as variáveis `COPYLAB_*`, zera o
+    cache de `get_settings()` e desliga o arquivo de ambiente de `Settings`; o teste que
+    precisa de um `.env` aponta para o dele com `Settings(_env_file=...)`.
+    """
+    clean_env.setitem(Settings.model_config, "env_file", None)
+
+
 @pytest.fixture
 def settings(clean_env: pytest.MonkeyPatch) -> Settings:
     """``Settings`` determinístico: sem env da máquina e sem ler ``.env``."""
