@@ -2,6 +2,12 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versionamento por spec, não global.
 
+## 2026-10-13
+
+### fase-1-design 1.7
+
+Precisões da primeira parte do Bloco F (T-061 a T-064), em §3.6 e §3.9, escritas antes do código. Confirma as respostas do Pedro às perguntas do Bloco E (giro, grupo BTC, ETH e SOL, subconta congelada, alavancagem máxima, benchmark a 1x, "fora do universo"), que já estavam no 1.6. Percentis sem interpolação e em inteiros (`copylab/stats.py`); cobertura `ok` por carteira; candidatas; conferência do proxy (mediana por dia, p95 dos desvios, nível); condição (i) lida da tabela `proxy`; universo com a primeira condição que excluiu cada ativo; fatos por carteira, com F5 e F8 em detalhe; funil com estágio final de N\*; N\* pela passada fill a fill, porque o preço da posição já aberta é o do primeiro fill; medida de custo e formato de `custos.json` (`copylab/costs.py`). Nenhuma decisão de ADR muda. Pontos que o design deixava abertos e que esta versão fixa por escolha do Claude Code, para o Pedro revisar: o 95 de N\* e o da conferência ficam como constantes nomeadas, e não em `parametros.toml`; a condição (i) é negada ao ativo sem proxy gravado; cotação inválida no `bbo` é `DataError`.
+
 ## 2026-10-12
 
 ### fase-1-design 1.6
