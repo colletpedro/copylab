@@ -1,7 +1,7 @@
 # Fase 1 (estudo de simulação) — Design técnico
 
 **Status:** aprovado — gate 2 em 2026-10-07
-**Versão:** 1.5
+**Versão:** 1.6
 **Data:** 2026-10-12
 **Requisitos:** `fase-1-requirements.md`, versão 1.3
 **Próximo gate:** `specs/00-plataforma/fase-1-tasks.md` (proposto)
@@ -383,6 +383,12 @@ def run_subaccount(
 - **Alavancagem e excesso.** A alavancagem observada é a exposição bruta sobre o patrimônio, medida depois de cada ocorrência, e o resultado guarda o maior valor e o instante. O excesso sobre o teto conta as execuções que terminaram com exposição acima de `teto × patrimônio` (tolerância relativa de 1e-9) e guarda o maior em dólares e em fração do patrimônio.
 - **Congelamento.** Patrimônio não positivo em qualquer marcação congela a subconta: o laço termina naquele instante, o patrimônio é o valor real, e a curva termina nesse ponto. Posições abertas ficam como estão.
 - **`SubaccountResult`.** Ordens (instante do evento, nominal, de execução, ativo, lado, tamanho pedido e executado, preço médio, taxa, motivo), pagamentos de funding, curva de patrimônio, alavancagem máxima e instante, excesso sobre o teto, contadores de não cópia, contadores de redução não enviada, mudanças não observadas incorporadas, execuções atrasadas, posições finais, PnL realizado e não realizado, taxas, funding, pendentes, `frozen` e o instante do congelamento.
+
+**Respostas às perguntas do Bloco D (1.6).**
+
+- **Consumo do segundo por `available_from`.** Perguntar a `available_from(c, t)` se o segundo de um instante que já chegou tem negócio exige olhar o segundo inteiro. É a mesma situação do pior preço do segundo de execução (ADR-0003), e contar a leitura no horizonte é a forma honesta: `horizon()` avança até o início desse segundo, e o teste de mutação só altera preços que começam depois dele. Instante futuro, perguntado só para saber quando acordar, não consome nada.
+- **A taxa encolhe a ordem.** A pós-condição do passo 8 desconta a taxa da ordem, então a compra que o alvo pede em 10 sai em um pouco menos (com 5 bps, 9,99). É o passo 8 como está escrito, e o efeito é de poucos bps. Na decomposição de RF-ANA-03 ele cai no degrau 6 (lote, ordem mínima e teto), que é o único com restrição de tamanho; os degraus de 1 a 5 não têm esse encolhimento.
+- **Marcação sem segundo anterior.** `mark(c, t)` sem nenhum segundo anterior ao de `t` continua `DataError`: preço inventado é pior que erro. Duas garantias: (i) o laço nunca pede marcação de um ativo em que a subconta não tem posição, inclusive no instante inicial; (ii) se uma execução real esbarrar no erro, a mensagem diz o ativo e o instante, para virar lacuna reportada e não se perder.
 
 
 ### 3.8 Analytics (`copylab.analytics`)
@@ -795,6 +801,7 @@ Os critérios de RF-VER são verificações sobre dado real, já executadas, e n
 
 | Versão | Data | Mudança |
 |---|---|---|
+| 1.6 | 2026-10-12 | Respostas do Pedro às perguntas do Bloco D (§3.7): o segundo consumido por `available_from` conta no horizonte, a taxa encolhe a ordem do passo 8 e cai no degrau 6 da decomposição, e a marcação sem segundo anterior segue `DataError` com ativo e instante, sem o laço marcar ativo sem posição |
 | 1.5 | 2026-10-12 | Respostas do Pedro às perguntas do Bloco C (valores padrão do diagnóstico de TWAP, cobertura por dia, `None` em T-063, escopo de `pnl_violations`) e precisões do Bloco D em §3.7: `Window` e `universe` (nomes), cursor e ligação das entradas, instantes do laço, `ProxySource`, escada consumida, motivos de não cópia, alavancagem, congelamento. Corrige o passo 1 de §4.3: a variante só compras zera o alvo depois do fator, como os requisitos e o ADR-0002 dizem |
 | 1.4 | 2026-10-12 | Precisões do Bloco C em §3.5, decididas pelo Pedro: tolerância de continuidade em HIP-3 (10⁻⁹ × o maior entre a posição que se tinha e o fill), `first_seq` e `last_seq` e `broken` em `Episode`, `Break`, `ignored_fills`, `pnl_violations` e `break_report`, e as regras de episódio perante mudança não observada. O que o design 1.3 fixava não muda |
 | 1.3 | 2026-10-08 | O percurso dos ativos candidatos segue RF-SEL-08 (ii): os 20 de maior notional entre os que têm equivalente na Binance, sem filtrar por fills antes; o número de fills só decide de quem se baixa o proxy completo (§3.3). Decisão do Bloco B, aceita |

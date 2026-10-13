@@ -4,6 +4,10 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ## 2026-10-12
 
+### fase-1-design 1.6
+
+Respostas às perguntas do Bloco D (§3.7), decididas pelo Pedro. (1) O segundo que `available_from` consome ao perguntar se um instante que já chegou tem negócio conta no horizonte, como o pior preço do segundo de execução (ADR-0003). (2) A taxa encolhe a ordem do passo 8, como está escrito, e o efeito (poucos bps) cai no degrau 6 da decomposição. (3) A marcação sem segundo anterior segue `DataError`, com ativo e instante na mensagem, e o laço nunca marca ativo sem posição, inclusive no instante inicial. Nenhuma decisão de ADR muda.
+
 ### fase-1-design 1.5
 
 Respostas às perguntas do Bloco C: o diagnóstico de TWAP usa vizinhança de 1 hora e faixas de 0 a 30, 30 a 60, 60 a 90 e acima de 90 dias, como padrão do comando de relatório (§3.5); a cobertura por dia é a definição do status, e só entram dias encerrados (§3.4); uma divergência de PnL `None` conta como não conciliada, e F3 só considera episódios de ativos do universo (§3.6). Precisões do Bloco D (§3.7): `Window` em `copylab/windows.py` e `universe` como conjunto de nomes; cursor, `bind` e entradas sem método de leitura; instantes e ordem do laço; escada consumida entre ordens do mesmo instante; limite do passo 8 por bisseção; motivos de não cópia; alavancagem máxima; congelamento. **Correção do passo 1 de §4.3:** a variante só compras zera o alvo negativo depois do fator do teto (RF-SIM-02 CA-02.6, ADR-0002), e não a posição do líder antes dele. Decidido pelo Pedro, porque os requisitos prevalecem sobre o design.
