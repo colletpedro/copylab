@@ -269,7 +269,7 @@ Start-Sleep -Seconds 3
 Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match 'copylab' -and $_.CommandLine -match 'collect' }   # não pode listar nada
 
 # 4. Atualizar.
-git pull; uv sync
+git pull --ff-only; uv sync
 
 # 5. Reativar e iniciar.
 Enable-ScheduledTask -TaskName "copylab-coletor"
