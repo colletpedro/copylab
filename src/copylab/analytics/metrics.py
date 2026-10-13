@@ -40,8 +40,9 @@ __all__ = [
     "turnover",
 ]
 
-#: Os três ativos do primeiro grupo da quebra de RF-ANA-01 CA-01.4. É definição de relatório, e
-#: a quebra é informativa: não entra no veredito.
+#: Os três ativos do primeiro grupo da quebra de RF-ANA-01 CA-01.4 (BTC, ETH e SOL), que é de
+#: onde a constante vem. É definição de relatório, e não parâmetro pré-registrado: a quebra é
+#: informativa e não entra no veredito.
 MAJORS = frozenset({"BTC", "ETH", "SOL"})
 
 #: Desvio considerado zero, relativo ao maior retorno em módulo. Tolerância de ponto flutuante,
