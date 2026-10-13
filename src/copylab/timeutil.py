@@ -13,6 +13,8 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Final, NewType
 
+import polars as pl
+
 from copylab.exceptions import ConfigError
 
 __all__ = [
@@ -26,7 +28,9 @@ __all__ = [
     "iso",
     "parse_utc_date",
     "second_of",
+    "second_of_expr",
     "utc_day",
+    "utc_day_expr",
 ]
 
 Ms = NewType("Ms", int)
@@ -47,6 +51,16 @@ _DATE_PATTERN: Final = re.compile(r"\d{4}-\d{2}-\d{2}")
 def utc_day(t: Ms) -> int:
     """Dias UTC inteiros desde a época, do dia que contém ``t``."""
     return t // MS_PER_DAY
+
+
+def utc_day_expr(column: str) -> pl.Expr:
+    """:func:`utc_day` sobre uma coluna de milissegundos, para tabelas grandes."""
+    return pl.col(column) // MS_PER_DAY
+
+
+def second_of_expr(column: str) -> pl.Expr:
+    """:func:`second_of` sobre uma coluna de milissegundos."""
+    return pl.col(column) // MS_PER_SECOND
 
 
 def day_start(day: int) -> Ms:
