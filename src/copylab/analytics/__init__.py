@@ -5,6 +5,15 @@ simulador devolveu, como objetos, e devolve objetos. Veredito, janela efetiva, g
 gráfico são do Bloco G e ainda não existem.
 """
 
+from copylab.analytics.counters import (
+    NON_COPY_REASONS,
+    OUTSIDE_UNIVERSE,
+    CapExcess,
+    NonCopy,
+    cap_excess,
+    non_copy,
+    outside_universe,
+)
 from copylab.analytics.metrics import (
     MAJORS,
     AssetBreakdown,
@@ -51,14 +60,18 @@ from copylab.analytics.scenarios import (
 __all__ = [
     "BENCHMARK_COIN",
     "MAJORS",
+    "NON_COPY_REASONS",
+    "OUTSIDE_UNIVERSE",
     "AssetBreakdown",
     "AssetResult",
+    "CapExcess",
     "CopiedEpisode",
     "Drawdown",
     "Grid",
     "GridCell",
     "GroupResult",
     "Metrics",
+    "NonCopy",
     "PortfolioResult",
     "Route",
     "Scenario",
@@ -68,6 +81,7 @@ __all__ = [
     "asset_breakdown",
     "asset_results",
     "benchmark_buy_and_hold",
+    "cap_excess",
     "copied_episodes",
     "daily_returns",
     "decomposition",
@@ -77,6 +91,8 @@ __all__ = [
     "hit_rate",
     "max_drawdown",
     "mirror_for",
+    "non_copy",
+    "outside_universe",
     "portfolio",
     "run_cohort",
     "run_grid",
