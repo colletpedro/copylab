@@ -21,11 +21,12 @@ from copylab.analytics.metrics import (
     sharpe,
     subaccount_metrics,
 )
-from copylab.exceptions import DataError
+from copylab.exceptions import DataError, SimulationError
 from copylab.leader import LeaderEvent
 from copylab.sim.funding import FundingTable
 from copylab.sim.loop import SubaccountResult, run_subaccount
 from copylab.sim.mirror import Frictions, Mirror
+from copylab.sim.model import FundingPayment
 from copylab.sim.prices import ProxyBar, ProxySource
 from copylab.sim.tape import LeaderTape
 from copylab.timeutil import MS_PER_DAY, MS_PER_HOUR, Ms
@@ -300,6 +301,29 @@ def test_funding_belongs_to_the_episode_open_at_the_hour() -> None:
 
 
 @pytest.mark.unit
+def test_funding_payment_outside_any_episode_is_a_defect() -> None:
+    """Um pagamento de funding só existe com posição aberta, então ele sempre cai num episódio. Um
+    que não cai (antes da abertura, no instante exato dela, depois do fechamento, ou de um ativo
+    que nunca teve episódio) é defeito do laço, e levanta `SimulationError` com o ativo e o
+    instante, em vez de sumir da conta. Episódio de 10 s a 20 s em `a`.
+
+    Mutação registrada: tirar a guarda de pagamento fora de episódio (`if False:` no lugar da
+    condição) faz o pagamento antes da abertura ser somado ao episódio, e o teste cai."""
+    result = run(
+        [ev(10_000, "a", 5.0), ev(20_000, "a", 0.0)], {"a": dense([100.0] * 60)}, end=60_000
+    )
+
+    def pay(t: int, coin: str = "a") -> FundingPayment:
+        return FundingPayment(Ms(t), coin, 5.0, 100.0, 0.0001, 0.05)
+
+    for payment in (pay(5_000), pay(10_000), pay(30_000), pay(15_000, "zzz")):
+        with pytest.raises(SimulationError, match="não cai em nenhum episódio"):
+            copied_episodes(result.orders, [payment])
+    (episode,) = copied_episodes(result.orders, [pay(15_000), pay(20_000)])
+    assert episode.funding == pytest.approx(0.1)  # 10 s < 15 s e 20 s <= 20 s: os dois são dele
+
+
+@pytest.mark.unit
 def test_an_episode_with_zero_net_result_is_not_a_hit() -> None:
     """Preço parado em 100 e sem custo: o episódio abre e fecha com resultado líquido exatamente
     zero. "Positivo" é estritamente maior que zero, então a taxa de acerto é 0 de 1.
@@ -380,6 +404,32 @@ def test_result_breaks_down_by_asset_and_two_groups() -> None:
     assert breakdown.others.coins == ("DOGE", "LIT")
     assert breakdown.others.net == pytest.approx(19.7901)
     assert sum(a.net for a in breakdown.by_asset) == pytest.approx(result.final_equity - 1_000.0)
+
+
+@pytest.mark.unit
+def test_asset_breakdown_attributes_funding_to_its_asset() -> None:
+    """O funding pago entra no líquido do ativo em que a posição estava. Mesma fixture do teste
+    do funding por episódio (compra de 5 de `a` em 10 s, inversão em 3 h, funding de 0,0001 em 1 h,
+    2 h e 3 h e de 0,0002 em 4 h, preço sempre 100, janela de 5 h): funding pago líquido 0,15 -
+    0,099985 = 0,050015, sem PnL realizado, não realizado nem taxa. O líquido de `a` é -0,050015,
+    e `b`, sem atividade, fica em zero. A soma dos ativos é o resultado da subconta.
+
+    Mutação registrada: não somar os pagamentos de funding (`row(payment.coin)[3] += ...`) deixa o
+    líquido de `a` em zero e o teste cai."""
+    hour = MS_PER_HOUR
+    rates = {
+        "a": {Ms(h * hour): r for h, r in ((1, 0.0001), (2, 0.0001), (3, 0.0001), (4, 0.0002))}
+    }
+    bars = {"a": sparse({0: 100.0, 10: 100.0, 10_800: 100.0})}
+    events = [ev(10_000, "a", 5.0), ev(3 * hour, "a", -5.0)]
+    result = run(events, bars, end=5 * hour, rates=rates)
+    breakdown = asset_breakdown([result], {"a", "b"})
+    a, b = breakdown.by_asset
+    assert a.coin == "a" and a.realized == pytest.approx(0.0) and a.fees == 0.0
+    assert a.funding == pytest.approx(0.050015)
+    assert a.net == pytest.approx(-0.050015)
+    assert b.net == 0.0
+    assert a.net == pytest.approx(result.final_equity - 1_000.0)
 
 
 @pytest.mark.unit
