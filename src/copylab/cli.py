@@ -23,10 +23,12 @@ import typer
 from copylab import clock
 from copylab.collector.assets import DEFAULT_ASSETS_PATH, load_assets
 from copylab.collector.compact import Compactor
+from copylab.collector.costs import measure_coin
 from copylab.collector.recorder import WS_URL, RecorderConfig
 from copylab.collector.service import collect as run_collector
 from copylab.collector.status import collector_status
 from copylab.config import get_settings
+from copylab.costs import DEFAULT_COSTS_PATH, CostEntry, add_new, dump_costs, parse_costs
 from copylab.exceptions import ConfigError, CopylabError, DataError
 from copylab.ingestion.budget import WeightBudget
 from copylab.ingestion.fills import STATUS_FAILED, STATUS_INCOMPATIBLE, STATUS_OK, ingest_fills
@@ -529,3 +531,88 @@ def ingest_market_command(
         for what, message in report.failures:
             log.error("ingest.market.failure", what=what, message=message)
         raise typer.Exit(code=EXIT_PARTIAL)
+
+
+# ─── Medida de custo (T-062) ──────────────────────────────────────────────────
+
+costs_app = typer.Typer(
+    help="Meio-spread medido pelo coletor, gravado uma vez por ativo (RF-COL-05).",
+    no_args_is_help=True,
+)
+app.add_typer(costs_app, name="costs")
+
+CostsOption = Annotated[Path, typer.Option("--costs", help="Arquivo de custos.", show_default=True)]
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    """Grava o texto num arquivo temporário vizinho e troca o nome (ADR-0006, decisão 4)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(path)
+
+
+@costs_app.command("measure")
+@_exit_on_expected_error
+def costs_measure(
+    assets: AssetsOption = DEFAULT_ASSETS_PATH,
+    params: ParamsOption = PARAMS_PATH,
+    costs: CostsOption = DEFAULT_COSTS_PATH,
+) -> None:
+    """Mede os ativos da lista do coletor que ainda não estão no arquivo de custos.
+
+    Nunca altera um valor gravado. Ativo sem os dias que se qualificam não é medido, e o
+    comando diz quantos dias faltam.
+    """
+    settings = get_settings()
+    loaded = load_params(params)
+    existing = parse_costs(costs.read_text(encoding="utf-8")) if costs.exists() else {}
+    wanted = [coin for coin in load_assets(assets) if coin not in existing]
+    if not wanted:
+        log.info("costs.measure.nothing_to_do", recorded=sorted(existing))
+        return
+    tables = ParquetStore.from_settings(settings)
+    status = collector_status(
+        SegmentStore.from_settings(settings),
+        tables,
+        wanted,
+        now_ms=clock.now(),
+        max_silence_ms=loaded.book_record.max_book_silence_ms,
+        projection_days=settings.disk_projection_days,
+        budget_bytes=round(settings.disk_budget_gb * 10**9),
+    )
+    repo = ParquetRepository(tables)
+    measured: dict[str, CostEntry] = {}
+    for asset in status.assets:
+        result = measure_coin(
+            repo,
+            asset.coin,
+            asset.daily,
+            min_days=loaded.slippage.min_measured_days,
+            min_coverage_pct=loaded.book_record.cost_min_day_coverage_pct,
+        )
+        if result.entry is None:
+            log.info(
+                "costs.measure.pending",
+                coin=result.coin,
+                qualifying_days=[iso(day_start(d))[:10] for d in result.qualifying],
+                days_missing=result.days_missing,
+            )
+            continue
+        measured[result.coin] = result.entry
+        log.info(
+            "costs.measure.asset",
+            coin=result.coin,
+            half_spread_bps=round(result.entry.half_spread_bps, 4),
+            days=[iso(day_start(d))[:10] for d in result.entry.days],
+            data_hash=result.entry.data_hash,
+        )
+    if measured:
+        _write_text_atomic(costs, dump_costs(add_new(existing, measured)))
+        log.info("costs.measure.written", path=str(costs), added=sorted(measured))
+    log.info(
+        "costs.measure.done",
+        measured=sorted(measured),
+        pending=sorted(set(wanted) - set(measured)),
+        recorded=sorted({*existing, *measured}),
+    )
