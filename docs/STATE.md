@@ -41,7 +41,7 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | M-C — medida de custo | ⬜ depois de 3 dias UTC completos de gravação dos 20 ativos (BNB e TAO: a partir de 2026-10-13 00:00 UTC) |
 | Bloco C — livro-razão do líder (T-030 a T-032) | ✅ implementado em 2026-10-12, sobre o design 1.4; `copylab.leader` com 100% de linhas e ramos, mutações registradas nas docstrings; CI verde nos três jobs (execução 38291860362, commit `50b5b7e`) |
 | Bloco D — simulador (T-040 a T-045) | ✅ implementado em 2026-10-12, sobre o design 1.5; `copylab.sim` com 97% de linhas e ramos; a mutação do futuro (RF-SIM-01 CA-01.2) pega cinco mutações de lookahead; CI verde nos três jobs (execução 38295992920, commit `a0b769c`) |
-| Bloco E — analytics (T-050 a T-053) | ✅ implementado em 2026-10-12, sobre o design 1.6; `copylab.analytics` com 100% de linhas e ramos; mutações registradas nas docstrings; CI: ver `HANDOFF.md` |
+| Bloco E — analytics (T-050 a T-053) | ✅ implementado em 2026-10-12, sobre o design 1.6; `copylab.analytics` com 100% de linhas e ramos; mutações registradas nas docstrings; CI verde nos três jobs (execução 38329120020, commit `a0cfc7b`) |
 | Demais blocos (F a H) | ⬜ |
 
 ## Próximo

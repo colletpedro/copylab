@@ -1470,4 +1470,4 @@ traz a conta).
 
 ## 8. CI
 
-Ver a próxima seção, preenchida depois do `push`.
+Verde nos três jobs (lint, tipos e testes; testes no Windows; auditoria) no commit `a0cfc7b`, execução 38329120020.
