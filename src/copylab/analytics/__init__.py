@@ -23,8 +23,16 @@ from copylab.analytics.metrics import (
     subaccount_metrics,
     turnover,
 )
+from copylab.analytics.portfolio import (
+    BENCHMARK_COIN,
+    PortfolioResult,
+    benchmark_buy_and_hold,
+    portfolio,
+    run_cohort,
+)
 
 __all__ = [
+    "BENCHMARK_COIN",
     "MAJORS",
     "AssetBreakdown",
     "AssetResult",
@@ -32,12 +40,16 @@ __all__ = [
     "Drawdown",
     "GroupResult",
     "Metrics",
+    "PortfolioResult",
     "asset_breakdown",
     "asset_results",
+    "benchmark_buy_and_hold",
     "copied_episodes",
     "daily_returns",
     "hit_rate",
     "max_drawdown",
+    "portfolio",
+    "run_cohort",
     "sharpe",
     "subaccount_metrics",
     "turnover",
