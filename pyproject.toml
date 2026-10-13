@@ -118,6 +118,8 @@ warn_required_dynamic_aliases = true
 # ─────────────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `tests.unit.selection_support` e afins: os auxiliares de teste compartilhados entre arquivos.
+pythonpath = ["."]
 addopts = [
     "--strict-markers",
     "--strict-config",
