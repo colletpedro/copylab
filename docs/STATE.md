@@ -17,7 +17,8 @@ data, o design 1.2 incorporou as decisões do Bloco A, e o Bloco B (ingestão, T
 T-060 e a ordenação de ativos de T-061, adiantadas do Bloco F) foi implementado e testado contra a
 API real em escala pequena; a ingestão completa (marco M-B) foi rodada em 2026-10-09. Em 2026-10-12, o design 1.4 precisou o
 livro-razão do líder, e o Bloco C (T-030 a T-032) foi implementado; o design 1.5 precisou o simulador, e o
-Bloco D (T-040 a T-045) foi implementado.** O repositório está publicado em
+Bloco D (T-040 a T-045) foi implementado. Ainda em 2026-10-12, o design 1.6 respondeu as perguntas do
+Bloco D e precisou a analytics, e o Bloco E (T-050 a T-053) foi implementado.** O repositório está publicado em
 `https://github.com/colletpedro/copylab`.
 Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
@@ -29,7 +30,7 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | Fundação (Fase 0) | ✅ `make check` verde; CI verde no GitHub |
 | Verificação de dados (§4.1) | ✅ RF-VER-01 a 04 executadas: 8 `ok`, 1 `a emendar`, 2 `reprova`, 1 `não medido` |
 | Verificação complementar (RF-VER-05) | ✅ executada em 2026-10-06: 4 `ok` |
-| Design da Fase 1 | ✅ 1.5 (1.0 aprovado no gate 2, 2026-10-07; 1.1 responde as perguntas do Bloco 0; 1.2 incorpora as decisões do Bloco A; 1.3 registra o percurso dos candidatos do Bloco B; 1.4 precisa o livro-razão do líder, Bloco C; 1.5 precisa o simulador, Bloco D) |
+| Design da Fase 1 | ✅ 1.6 (1.0 aprovado no gate 2, 2026-10-07; 1.1 responde as perguntas do Bloco 0; 1.2 incorpora as decisões do Bloco A; 1.3 registra o percurso dos candidatos do Bloco B; 1.4 precisa o livro-razão do líder, Bloco C; 1.5 precisa o simulador, Bloco D; 1.6 responde as perguntas do Bloco D e precisa a analytics, Bloco E) |
 | Plano de tarefas | ✅ 0.1 aprovado (gate 3, 2026-10-07) |
 | Bloco 0 — base (T-001 a T-005) | ✅ implementado em 2026-10-07; `make check` e CI verdes |
 | Bloco A — coletor (T-010 a T-014) | ✅ código pronto e adaptado ao Windows nativo; `make check`, integração e CI (inclusive Windows) verdes; roteiro para Windows escrito, com a seção de serviço ainda não executada numa máquina Windows |
@@ -40,7 +41,8 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | M-C — medida de custo | ⬜ depois de 3 dias UTC completos de gravação dos 20 ativos (BNB e TAO: a partir de 2026-10-13 00:00 UTC) |
 | Bloco C — livro-razão do líder (T-030 a T-032) | ✅ implementado em 2026-10-12, sobre o design 1.4; `copylab.leader` com 100% de linhas e ramos, mutações registradas nas docstrings; CI verde nos três jobs (execução 38291860362, commit `50b5b7e`) |
 | Bloco D — simulador (T-040 a T-045) | ✅ implementado em 2026-10-12, sobre o design 1.5; `copylab.sim` com 97% de linhas e ramos; a mutação do futuro (RF-SIM-01 CA-01.2) pega cinco mutações de lookahead; CI verde nos três jobs (execução 38295992920, commit `a0b769c`) |
-| Demais blocos (E a H) | ⬜ |
+| Bloco E — analytics (T-050 a T-053) | ✅ implementado em 2026-10-12, sobre o design 1.6; `copylab.analytics` com 100% de linhas e ramos; mutações registradas nas docstrings; CI: ver `HANDOFF.md` |
+| Demais blocos (F a H) | ⬜ |
 
 ## Próximo
 
@@ -52,7 +54,7 @@ SOL, ZEC, LIT, PUMP, XRP, NEAR, ENA, XMR, AAVE, DOGE, FARTCOIN, UNI, BNB, TAO, V
 BNB e TAO entraram na lista do coletor (reiniciar o coletor); detalhes no fim do `HANDOFF.md`.
 **M-C, medida de custo:** pode rodar depois de 3 dias UTC completos de gravação dos 20; para BNB e
 TAO, a partir de 2026-10-13 00:00 UTC, se começarem a gravar antes da virada de 2026-10-10. Em
-paralelo, os Blocos E (analytics) e F (seleção); C e D estão prontos.
+paralelo, o Bloco F (seleção); C, D e E estão prontos. Depois dele, G (avaliação da Rota A).
 
 ## O que existe no código
 
@@ -87,8 +89,11 @@ paralelo, os Blocos E (analytics) e F (seleção); C e D estão prontos.
   líder, funding e fonte de preço da Rota A presos ao cursor (`cursor.py`, `tape.py`, `funding.py`,
   `prices.py`), espelhamento (`mirror.py`) e laço (`loop.py`), com os tipos em `model.py`. Lógica pura.
   `Window` mora em `src/copylab/windows.py`. `BookSource` (Rota B) é do Bloco H.
-- `src/copylab/analytics/` — vazio, só `__init__.py` com uma docstring que diz qual
-  bloco os preenche. Vazios **de propósito** (CLAUDE.md §1).
+- `src/copylab/analytics/` — a analytics (Bloco E): `metrics.py` (retornos por dia UTC, Sharpe, drawdown, episódios
+  copiados, taxa de acerto, giro, resultado por ativo e nos dois grupos), `portfolio.py` (carteira como soma das
+  subcontas com C/K e capital parado, coorte, benchmark de BTC), `scenarios.py` (grade de 11 e 9 cenários, referência de
+  Δ = 0, decomposição em seis degraus, aviso de cenário irrealista) e `counters.py` (não cópia por motivo e excesso sobre o
+  teto). Lógica pura. Veredito, janela efetiva, gate, relatórios e gráfico (Bloco G) ainda não existem.
 - `scripts/verify/` — código exploratório da verificação de dados. Fora do `mypy` e da cobertura.
 - `tests/unit/` — fumaça, `config`, `logging`, ferramentas de medição; testes de `timeutil`,
   `clock`, `ports`, `storage`, `params`, coletor, ingestão, pool e ordenação de ativos, livro-razão do líder (eventos, episódios, PnL e quebras); os quatro
@@ -99,10 +104,10 @@ paralelo, os Blocos E (analytics) e F (seleção); C e D estão prontos.
 
 ## Números
 
-- 554 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 2 de integração
+- 600 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 2 de integração
   (60 s do WebSocket real; ingestão de 5 carteiras e de um dia de proxy de BTC), fora da suíte
   default e do CI.
-- Cobertura medida em `leader`, `selection`, `sim` e `analytics`: `leader`, `selection` e `sim` têm
-  código; `leader` e `selection` com 100% de linhas e ramos e `sim` com 97% (`leader`: `ledger`, `episodes`, `pnl`, `diagnostics`, `model`;
+- Cobertura medida em `leader`, `selection`, `sim` e `analytics`: `leader`, `selection`, `sim` e `analytics` têm
+  código; `leader`, `selection` e `analytics` com 100% de linhas e ramos e `sim` com 97% (`leader`: `ledger`, `episodes`, `pnl`, `diagnostics`, `model`;
   `selection`: `pool.py` e `assets.py`). `storage`, `ports`, `params`, `timeutil` e
   `ingestion` não entram no piso (RNF-02), mas têm testes próprios.

@@ -1335,3 +1335,139 @@ fator. Cada uma está na docstring do teste que a pega.
 ## 8. CI
 
 Verde nos três jobs (lint, tipos e testes; testes no Windows; auditoria) no commit `a0b769c`, execução 38295992920.
+
+---
+
+# HANDOFF — Bloco E, analytics (primeira parte) (prompt 12)
+
+**Data:** 2026-10-12
+**Escopo entregue:** as respostas do Bloco D no design 1.6, as duas garantias de marcação, e o Bloco E (T-050 a T-053).
+**Não feito, de propósito:** veredito, relatório, gate, janela efetiva e gráfico (Bloco G), seleção (Bloco F), `BookSource`
+(Bloco H). Nenhum dado real nos testes, nenhum `ingest`.
+
+## 1. Parte 0 — respostas do Bloco D (design 1.6, `618e5dd`)
+
+1. **Segundo consumido por `available_from`:** aceito. Perguntar se o segundo de um instante que já chegou tem negócio lê o
+   segundo inteiro, como o pior preço do segundo de execução (ADR-0003); a leitura conta no horizonte (§3.7).
+2. **A taxa encolhe a ordem:** aceito, é o passo 8 como escrito. Na decomposição o efeito cai no degrau 6 (lote, ordem mínima e
+   teto), o único com restrição de tamanho.
+3. **Marcação sem segundo anterior:** `DataError` mantido. Duas garantias, com teste em `tests/unit/test_sim_marks.py`
+   (`a4474d9`): o laço nunca marca ativo em que a subconta não tem posição, nem no instante inicial (o ativo `late`, sem
+   barra antes do segundo 200, nunca é marcado); e a mensagem de uma execução que esbarra no erro diz o ativo e o instante
+   (`zed`, `1970-01-01T00:00:10.000Z`), para a CLI poder registrá-la como lacuna.
+4. **Pontos menores da seção 7 do HANDOFF do Bloco D:** nenhum pediu decisão. Os itens 3 a 6 ficam como estão; o 7
+   (`horizon()` da fonte do Bloco H) segue como nota para o Bloco H.
+
+## 2. Design 1.6, precisões do Bloco E (§3.8, `618e5dd`)
+
+Escritas antes do código. Resumo do que fixam: módulos de `analytics` (`metrics`, `portfolio`, `scenarios`, `counters`);
+a anualização entra nas assinaturas de `sharpe` e `portfolio`; `benchmark_buy_and_hold` recebe `PriceFeed`; e a definição de
+cada métrica, da carteira, do benchmark, da grade, da decomposição e dos contadores. `SubaccountResult` ganhou `final_marks`
+(`b8de9b1`), sem mudar nenhuma ordem executada: o teste de aceitação do Bloco D passa sem alteração.
+
+## 3. Tarefas
+
+| Tarefa | Commit | Onde |
+|---|---|---|
+| marcação: garantias do item 3 | `a4474d9` | `tests/unit/test_sim_marks.py` |
+| `final_marks` no resultado | `b8de9b1` | `sim/loop.py` |
+| T-050 métricas | `b44fd0e` | `analytics/metrics.py` |
+| T-051 carteira, subcontas, benchmark | `6f5b1a1` | `analytics/portfolio.py` |
+| T-052 grade, referência, decomposição, aviso | `111c415` | `analytics/scenarios.py` |
+| T-053 contadores | `b687fa8` | `analytics/counters.py` (+ motivos públicos em `sim/mirror.py`) |
+| funding por ativo, pagamento fora de episódio | `c6a22dd` | `tests/unit/test_analytics_metrics.py` |
+
+- **Cobertura de `copylab.analytics`: 100% de linhas e de ramos** (394 linhas, 88 ramos, nenhuma sem cobrir). Total medido
+  (`leader`, `selection`, `sim`, `analytics`): 99%.
+- 600 testes unitários (eram 554): +46, dois em `test_sim_marks.py` e 44 nos quatro `test_analytics_*.py`.
+- `analytics` é puro: o teste de pureza passa, e nenhum nome do módulo bate com `read_*`, `scan_*`, `write_*` ou `sink_*`.
+
+## 4. Decisões que tomei onde o design não decidia — revise
+
+Todas estão em §3.8 do design 1.6. As que mais mudam um número:
+
+1. **Retornos diários:** um por par de pontos consecutivos da curva (início, meias-noites, fim). Numa janela que começa e
+   termina à meia-noite são tantos retornos quanto dias. Base não positiva é `DataError`.
+2. **Desvio zero no Sharpe é numérico:** desvio ≤ 1e-12 vezes o maior retorno em módulo. Com `== 0.0` a primeira versão do
+   teste não pegava a mutação (retornos de 1% por dia saem bit a bit iguais; os de 10% por dia diferem na última casa e dão
+   desvio de 1,6e-16). É tolerância de ponto flutuante como a da conciliação, e não parâmetro do estudo.
+3. **Métricas ausentes (`None`):** Sharpe e drawdown saem `None` se *algum ponto da curva* tem patrimônio ≤ 0, e não só se a
+   subconta congelou. Retorno líquido, taxas, funding, episódios e alavancagem seguem definidos. O giro é `None` se a média
+   dos patrimônios não é positiva. A carteira usa a mesma regra sobre a curva dela: com uma subconta congelada e a soma
+   positiva, o Sharpe da carteira existe, e `any_frozen` fica verdadeiro (é isso que reprova o veredito).
+4. **Drawdown:** pico é o primeiro ponto em que o máximo corrente foi atingido; fundo é o primeiro da maior queda; recuperação
+   é o primeiro ponto depois do fundo com patrimônio ≥ pico. Sem queda: profundidade 0, datas ausentes, `recovered` verdadeiro.
+5. **Episódio copiado:** refeito das ordens pela mesma `Subaccount` (reutiliza a contabilidade, não a reimplementa). O funding
+   da hora `H` é do episódio com `abertura < H ≤ fechamento`, porque o funding precede a execução no mesmo instante. Pagamento
+   que não cai em episódio é `SimulationError`. A taxa de acerto usa resultado estritamente positivo; os abertos no fim ficam
+   fora dela.
+6. **Giro:** notional executado dividido pela média dos patrimônios de **todos os pontos da curva** (início, meias-noites e
+   fim). "Média dos patrimônios diários" admite também só os de fim de dia; mudar é uma linha em `turnover`.
+7. **Resultado por ativo:** exigiu `final_marks`. O grupo `MAJORS = {BTC, ETH, SOL}` é constante em `analytics/metrics.py`
+   (definição de RF-ANA-01 CA-01.4), e não parâmetro: pô-lo em `parametros.toml` mudaria o hash do arquivo de parâmetros por
+   um número que é só de relatório. Ativo do universo sem atividade entra com zero.
+8. **Carteira:** curva sobre a união dos instantes das subcontas; cada uma vale o último ponto dela até ali, e a congelada segue
+   com o valor real. Capital parado = `capital − Σ capital inicial`. `run_cohort(membros, capital, k, simular, ...)` pega os `k`
+   primeiros, devolve `None` para coorte vazia e levanta `SimulationError` se `simular` não usou `capital / k`. Alavancagem
+   máxima da carteira = a maior das subcontas (elas não compensam posições, então não existe "alavancagem líquida").
+9. **Benchmark:** o mesmo laço, com um evento sintético de BTC em `janela.início` (posição 1, preço 1, referência 1), `peak = 1`,
+   `cap` e mínimo do `Mirror` recebido, e **restrições de tamanho sempre ligadas**, mesmo que o `Frictions` recebido as
+   desligue. O `peak` do cenário não o dimensiona (é 1x). Sem preço de BTC até o fim, o evento fica pendente e o patrimônio é o
+   capital; o relatório precisa mostrar isso (`result.pending`).
+10. **Grade:** `Scenario(capital, k, delay_ms, slippage_multiplier, primary)`; `run_grid(run, route, params)` chama
+    `run(cenário, long_only)` duas vezes por cenário e devolve `Grid.cells`; `Grid.primary` é a célula do cenário primário, e
+    **o veredito deve ler só `grid.primary.full`**. `frictions_for` e `mirror_for` montam `Frictions` e `Mirror` dos parâmetros
+    e do slippage primário por ativo (que vem de `custos.json`, T-062).
+11. **Decomposição:** `Step.inert` diz por que um fator não muda nada no primário (`delay_zero`, `no_slippage`, `fee_zero`,
+    `funding_off`, `size_constraints_off`); na Rota B o do slippage é sempre `no_slippage`, com diferença exatamente zero.
+    A soma das diferenças é o último retorno menos o primeiro, a menos de arredondamento de `float` (teste com `approx`).
+12. **Contadores:** o laço já calcula a fração e o motivo de cada evento, então o prompt condicional ("se o simulador ainda não
+    expõe o tamanho que o alvo pediria sem restrições") não se aplicou: nenhum campo novo além de `final_marks`. "Fora do
+    universo" conta **fills**, e não eventos, como §3.8 diz, e chega de fora: `outside_universe(fills, universe)` recebe pares
+    `(ativo, notional)`. **O Bloco G precisa alimentá-la** com todos os fills de todos os membros da coorte na janela (qualquer
+    instrumento), lidos da tabela pelo protocolo de `ports`.
+13. **`Route` de `analytics`** é um literal próprio (`"A" | "B"`), igual ao de `ingestion.guard`, que `analytics` não pode
+    importar. Se o Bloco G quiser um só, o lugar natural é `copylab/windows.py`.
+
+## 5. Mutações (todas pegas; cada uma na docstring do teste)
+
+`marks`: marcar todo o universo, mensagem sem ativo e instante. `metrics`: desvio populacional, anualização, `== 0.0` no
+desvio, queda contra o máximo global, recuperação contra o início, empate de queda e de pico, `>= 0` como acerto, episódio
+aberto no denominador, giro sobre o capital inicial, atribuição do funding na fronteira, Sharpe e drawdown sem a guarda de
+curva positiva, não realizado e taxas por ativo, funding por ativo, guarda de pagamento fora de episódio. `portfolio`: capital
+inteiro por subconta, todos os membros, sem capital parado, só a primeira subconta, congelada como zero, benchmark sem
+slippage, sem taxa, com `peak` do cenário, com restrições do `Frictions`, funding com o sinal trocado. `scenarios`: sensibilidade
+na Rota B, primário trocado, variante só compras pulada, referência com taxa zerada ou sem zerar o atraso, ordem dos degraus,
+diferença contra o primeiro degrau, soma sem o último, `inert` ausente, aviso de slippage na Rota B. `counters`: só a primeira
+subconta, ordem dos motivos, fills dentro do universo, máximo no lugar da soma, soma no lugar do máximo, excesso não registrado.
+
+**Duas vezes a primeira versão do teste não pegava a mutação.** (a) `Sharpe` com `== 0.0`: a fixture de retornos iguais tinha
+retornos bit a bit iguais; trocada por uma curva de 10% por dia. (b) Sharpe sem a guarda de curva positiva: a curva congelada
+de dois pontos tinha um só retorno (sem desvio, `None` de qualquer jeito); trocada por uma de quatro pontos. Fora isso, uma
+expectativa minha estava errada e a implementação, certa: no teste do funding por episódio o patrimônio em 3 h já descontou o
+funding pago, então a venda que abre vale 4,99925, e o funding de 4 h é −0,099985, e não −0,1 (conferido à mão, e a docstring
+traz a conta).
+
+## 6. Para conferir
+
+1. O giro (item 6), o grupo `MAJORS` no código (item 7), a carteira com a subconta congelada carregada pelo valor real (item
+   8) e a alavancagem máxima da carteira como a maior das subcontas (item 8) são escolhas minhas. Nenhuma muda o veredito:
+   o veredito lê retorno líquido, benchmark, coorte e `any_frozen`.
+2. O benchmark ignora o `peak` do cenário e força restrições de tamanho (item 9). Com o `Frictions` do degrau 1 da decomposição
+   (sem restrição), ele daria 1.000 / preço sem lote; o prompt pede lote e teto, então forcei.
+3. Assinaturas que mudaram em relação ao esboço de §3.8: `sharpe` e `portfolio` recebem `periods_per_year`;
+   `benchmark_buy_and_hold` recebe `PriceFeed`; `portfolio` devolve `PortfolioResult` (não aceita lista vazia: coorte vazia é
+   `run_cohort` devolver `None`).
+
+## 7. Para o Bloco G (e H) saber
+
+- `verdict` lê `grid.primary.full` (pode ser `None`), `benchmark_buy_and_hold` do mesmo capital e `PortfolioResult.any_frozen`.
+- O `run` do cenário deve fechar sobre **uma** fonte de preço, uma coorte e um funding (é o que faz a referência de Δ = 0 e a
+  decomposição valerem "na mesma fonte de preço").
+- Um `DataError` de marcação vindo de `run_subaccount` já traz ativo e instante: a CLI deve capturá-lo e listar como lacuna.
+- Rota B: `Frictions.slippage_bps = {}`; `unrealistic_warnings` não acusa slippage nela, de propósito.
+- A nota 7 do HANDOFF do Bloco D (`horizon()` do `BookSource`) continua valendo para o Bloco H.
+
+## 8. CI
+
+Ver a próxima seção, preenchida depois do `push`.
