@@ -6,7 +6,7 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versioname
 
 ### fase-1-design 1.6
 
-Respostas às perguntas do Bloco D (§3.7), decididas pelo Pedro. (1) O segundo que `available_from` consome ao perguntar se um instante que já chegou tem negócio conta no horizonte, como o pior preço do segundo de execução (ADR-0003). (2) A taxa encolhe a ordem do passo 8, como está escrito, e o efeito (poucos bps) cai no degrau 6 da decomposição. (3) A marcação sem segundo anterior segue `DataError`, com ativo e instante na mensagem, e o laço nunca marca ativo sem posição, inclusive no instante inicial. Nenhuma decisão de ADR muda.
+Respostas às perguntas do Bloco D (§3.7), decididas pelo Pedro. (1) O segundo que `available_from` consome ao perguntar se um instante que já chegou tem negócio conta no horizonte, como o pior preço do segundo de execução (ADR-0003). (2) A taxa encolhe a ordem do passo 8, como está escrito, e o efeito (poucos bps) cai no degrau 6 da decomposição. (3) A marcação sem segundo anterior segue `DataError`, com ativo e instante na mensagem, e o laço nunca marca ativo sem posição, inclusive no instante inicial. Nenhuma decisão de ADR muda. Precisões do Bloco E (§3.8): módulos de `analytics`; a anualização entra nas assinaturas de `sharpe` e `portfolio`; retornos, Sharpe, drawdown, episódio copiado, giro, resultado por ativo e por grupo, carteira, coorte, benchmark, grade, referência de Δ = 0, decomposição, aviso de cenário irrealista e contadores; `SubaccountResult` ganha `final_marks`.
 
 ### fase-1-design 1.5
 
