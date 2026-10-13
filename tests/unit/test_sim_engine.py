@@ -767,6 +767,8 @@ def test_open_position_at_end_is_marked_and_reported_separately() -> None:
     assert result.realized == 0.0
     assert result.unrealized == pytest.approx(50.0)
     assert result.final_equity == pytest.approx(1_050.0)
+    # `final_marks` guarda a marcação das posições abertas: 5 x (110 - 100) = 50 do não realizado.
+    assert result.final_marks == {"a": pytest.approx(110.0)}
 
 
 @pytest.mark.unit

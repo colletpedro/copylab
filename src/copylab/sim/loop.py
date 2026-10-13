@@ -41,6 +41,7 @@ class SubaccountResult:
     max_leverage_at: Ms | None
     counters: Counters
     final_positions: Mapping[str, tuple[float, float]]
+    final_marks: Mapping[str, float]  # marcação das posições abertas no último instante
     final_equity: float
     realized: float
     unrealized: float
@@ -223,6 +224,7 @@ def run_subaccount(
         max_leverage_at=max_leverage_at,
         counters=engine.counters,
         final_positions=account.positions(),
+        final_marks={coin: last_marks[coin] for coin in account.positions()},
         final_equity=last_equity,
         realized=account.realized,
         unrealized=account.unrealized(last_marks),
