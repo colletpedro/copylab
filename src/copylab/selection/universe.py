@@ -172,6 +172,7 @@ def candidate_assets(
                 coin,
                 all_fills.filter(pl.col("coin") == coin),
                 proxy,
+                deviation_percentile_pct=universe.proxy_deviation_percentile_pct,
                 max_deviation_p95_bps=universe.proxy_max_deviation_p95_bps,
                 max_level_bps=universe.proxy_max_level_bps,
             )

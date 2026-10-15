@@ -15,12 +15,30 @@ import polars as pl
 import pytest
 from tests.unit.selection_support import proxy_table
 
-from copylab.selection.proxycheck import check_proxy
+from copylab.selection.proxycheck import ProxyCheck, check_proxy
 from copylab.timeutil import MS_PER_DAY, day_start
 
 D0 = day_start(20_000)
 S = (D0 + 3_600_000) // 1_000
-LIMITS = {"max_deviation_p95_bps": 78.125, "max_level_bps": 78.125}
+
+
+def limited(
+    coin: str,
+    rows: pl.DataFrame,
+    proxy: pl.DataFrame,
+    *,
+    p95: float = 78.125,
+    level: float = 78.125,
+) -> ProxyCheck:
+    """``check_proxy`` com o percentil 95 e os limites dados (por padrão, 78,125 bps)."""
+    return check_proxy(
+        coin,
+        rows,
+        proxy,
+        deviation_percentile_pct=95,
+        max_deviation_p95_bps=p95,
+        max_level_bps=level,
+    )
 
 
 def fills(*pairs: tuple[int, float]) -> pl.DataFrame:
@@ -59,24 +77,20 @@ def test_proxy_invalid_on_dispersion_or_level() -> None:
     (``<`` no lugar de ``<=``): o limite exato de cada caso deixou de valer, e caiu.
     """
     spread = [(at(0, i), 128.0) for i in range(18)] + [(at(0, 18), 129.0), (at(0, 19), 256.0)]
-    dispersed = check_proxy("X", fills(*spread), proxy_at(0), **LIMITS)
+    dispersed = limited("X", fills(*spread), proxy_at(0))
     assert dispersed.compared == 20
     assert dispersed.deviation_p95_bps == pytest.approx(78.125)
     assert dispersed.level_bps == pytest.approx(0.0)
     assert dispersed.valid
-    tight = check_proxy(
-        "X", fills(*spread), proxy_at(0), max_deviation_p95_bps=78.0, max_level_bps=78.125
-    )
+    tight = limited("X", fills(*spread), proxy_at(0), p95=78.0)
     assert not tight.valid
 
     shifted = [(at(0, i), 127.0) for i in range(3)] + [(at(1, i), 128.0) for i in range(3)]
-    level = check_proxy("X", fills(*shifted), proxy_at(0, 1), **LIMITS)
+    level = limited("X", fills(*shifted), proxy_at(0, 1))
     assert level.level_bps == pytest.approx(78.125)
     assert level.deviation_p95_bps == pytest.approx(0.0)
     assert level.valid
-    too_high = check_proxy(
-        "X", fills(*shifted), proxy_at(0, 1), max_deviation_p95_bps=78.125, max_level_bps=78.0
-    )
+    too_high = limited("X", fills(*shifted), proxy_at(0, 1), level=78.0)
     assert not too_high.valid
 
 
@@ -96,7 +110,7 @@ def test_proxy_report_includes_daily_median_and_its_range() -> None:
         + [(at(1, 0), 128.0), (at(1, 1), 129.0)]
         + [(at(2, 0), 256.0)]
     )
-    check = check_proxy("X", fills(*rows), proxy_at(0, 1, 2), **LIMITS)
+    check = limited("X", fills(*rows), proxy_at(0, 1, 2))
     assert [(d.day, d.n_fills) for d in check.days] == [(20_000, 3), (20_001, 2), (20_002, 1)]
     assert [d.median_bps for d in check.days] == pytest.approx([-78.125, 39.0625, 10_000.0])
     assert check.shift_bps == pytest.approx(10_078.125)
@@ -119,7 +133,7 @@ def test_fill_in_a_second_without_trade_is_skipped_and_counted() -> None:
         },
         schema={"time_ms": pl.Int64, "px": pl.Float64},
     )
-    check = check_proxy("X", rows, proxy_at(0), **LIMITS)
+    check = limited("X", rows, proxy_at(0))
     assert (check.compared, check.skipped) == (3, 2)
     # Diferenças 0, 0 e 78,125: mediana 0; desvios 0, 0 e 78,125; p95 de 3 = posto 3 = 78,125.
     assert check.deviation_p95_bps == pytest.approx(78.125)
@@ -127,7 +141,7 @@ def test_fill_in_a_second_without_trade_is_skipped_and_counted() -> None:
 
 @pytest.mark.unit
 def test_asset_without_any_comparable_fill_is_invalid() -> None:
-    check = check_proxy("X", fills((at(0, 1_500), 128.0)), proxy_at(0), **LIMITS)
+    check = limited("X", fills((at(0, 1_500), 128.0)), proxy_at(0))
     assert (check.compared, check.skipped, check.valid) == (0, 1, False)
     assert check.deviation_p95_bps is None
     assert check.level_bps is None

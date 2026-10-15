@@ -51,6 +51,11 @@ class Universe(_Section):
     min_candidate_fills: StrictInt
     proxy_max_deviation_p95_bps: StrictFloat
     proxy_max_level_bps: StrictFloat
+    proxy_deviation_percentile_pct: StrictInt
+
+
+class Reference(_Section):
+    percentile_pct: StrictInt
 
 
 class RouteA(_Section):
@@ -268,6 +273,7 @@ class Params(_Section):
     design 1.1 (§3.9) põe aqui e a regra de nomes da Binance."""
 
     universe: Universe
+    reference: Reference
     route_a: RouteA
     route_b: RouteB
     live_week: LiveWeek

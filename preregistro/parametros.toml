@@ -30,6 +30,14 @@ min_candidate_fills = 2000
 proxy_max_deviation_p95_bps = 10.0
 # "nível de até 50 bps" — módulo da mediana diária, RF-ING-06 CA-06.3
 proxy_max_level_bps = 50.0
+# O "p95" do desvio da conferência do proxy — RF-ING-06 CA-06.3 (percentil, por cento; design 1.8)
+proxy_deviation_percentile_pct = 95
+
+# ─── Referência de exposição (ADR-0007; RF-SEL-03 CA-03.1) ────────────────────
+
+[reference]
+# "percentil 95, ponderado pelo tempo, da exposição bruta" (por cento; design 1.8)
+percentile_pct = 95
 
 # ─── Rota A (§7.2) ─────────────────────────────────────────────────────────────
 
