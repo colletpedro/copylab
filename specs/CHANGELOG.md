@@ -2,6 +2,12 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). Versionamento por spec, não global.
 
+## 2026-10-15
+
+### fase-1-design 1.8
+
+Respostas do Pedro às perguntas da primeira parte do Bloco F. (1) O 95 de N\* e o p95 da conferência do proxy vão para `parametros.toml` (regra de §3.9: número que muda o resultado mora no arquivo); a mediana de F8 é o tipo da estatística e fica no código. (2) A condição (i) é gravada pela ingestão, por ativo visitado e dia, na tabela `proxy_days`, e a seleção a lê de lá (`Repository.proxy_days`); o `ingest market` da Rota A precisa rodar de novo. (3) Cotação inválida no `bbo` é pulada e contada em `custos.json`, e não derruba a medida. Substitui, em §3.6 e §3.9, as três escolhas que o 1.7 marcava para revisão.
+
 ## 2026-10-13
 
 ### fase-1-design 1.7
