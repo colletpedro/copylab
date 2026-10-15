@@ -29,7 +29,7 @@ def fill_row(
     coin: str,
     side: str,
     sz: float,
-    px: float,
+    px: float | None,
     start: float,
     *,
     pnl: float = 0.0,
@@ -157,3 +157,68 @@ class FakeRepository:
 
     def content_hash(self, table: str, keys: Sequence[str], start: Ms, end: Ms) -> str:
         raise NotImplementedError
+
+
+# ─── Carteiras de papel para os filtros ──────────────────────────────────────
+
+from collections.abc import Callable  # noqa: E402
+
+from copylab.ports import BoundedRepository  # noqa: E402
+from copylab.selection.facts import WalletFacts, wallet_facts  # noqa: E402
+from copylab.timeutil import MS_PER_DAY, MS_PER_HOUR, day_start  # noqa: E402
+
+WALLET = "0xW"
+#: 56 dias, os 8 blocos de 7 dias de F5, a partir do dia UTC 20.000.
+W56 = Window(day_start(20_000), day_start(20_056))
+LOTS = {"BTC": 0.01, "ETH": 0.01, "SOL": 0.01, "AVAX": 0.01, "XRP": 0.01}
+
+
+def round_trips(
+    per_block: Sequence[int],
+    *,
+    duration_ms: int = 2 * MS_PER_HOUR,
+    crossed: Callable[[int], bool] = lambda i: True,
+    break_at: int | None = None,
+    pnl_error: float = 0.0,
+    error_at: int = 0,
+) -> list[dict[str, Any]]:
+    """Episódios de BTC de uma compra de 1 a 100 e uma venda de 1 a 101, com PnL 1,0 na venda.
+
+    ``per_block[k]`` episódios no bloco ``k`` de 7 dias, o ``j``-ésimo aberto ``j`` dias mais 1 h
+    depois do início do bloco. ``crossed(i)`` diz se a abertura do ``i``-ésimo é a mercado.
+    ``break_at`` declara 5,0 de posição na venda do ``i``-ésimo (quebra de continuidade);
+    ``pnl_error`` soma ao ``closed_pnl`` da venda do ``error_at``-ésimo.
+    """
+    rows: list[dict[str, Any]] = []
+    i = 0
+    for block, count in enumerate(per_block):
+        for j in range(count):
+            opened = W56.start + block * 7 * MS_PER_DAY + j * MS_PER_DAY + MS_PER_HOUR
+            rows.append(fill_row(opened, "BTC", "B", 1.0, 100.0, 0.0, crossed=crossed(i)))
+            pnl = 1.0 + (pnl_error if i == error_at else 0.0)
+            start = 5.0 if i == break_at else 1.0
+            rows.append(fill_row(opened + duration_ms, "BTC", "A", 1.0, 101.0, start, pnl=pnl))
+            i += 1
+    return rows
+
+
+def at_start(coin: str, px: float | None = 100.0, sz: float = 1.0, **kw: Any) -> dict[str, Any]:
+    """Uma compra aberta uma hora depois do início da janela, que fica aberta até o fim."""
+    return fill_row(W56.start + MS_PER_HOUR, coin, "B", sz, px, 0.0, **kw)
+
+
+def facts_of(
+    rows: Sequence[dict[str, Any]],
+    *,
+    status: str = "ok",
+    account_value: float = 50_000.0,
+    universe: frozenset[str] = frozenset({"BTC"}),
+) -> WalletFacts:
+    """Os fatos de uma carteira de papel, lidos pelo `BoundedRepository` como a seleção lê."""
+    ordered = sorted(rows, key=lambda r: r["time_ms"])
+    repo = FakeRepository(
+        fills={WALLET: fills_table(*ordered)}, coverage={WALLET: coverage_table(W56, status)}
+    )
+    return wallet_facts(
+        BoundedRepository(repo, W56.end), WALLET, W56, universe, LOTS, account_value
+    )
