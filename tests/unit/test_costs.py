@@ -264,4 +264,4 @@ def test_add_new_keeps_existing_values_and_refuses_to_change_one() -> None:
 
 @pytest.mark.unit
 def test_default_path_is_the_preregistration_file() -> None:
-    assert str(DEFAULT_COSTS_PATH) == "preregistro/custos.json"
+    assert DEFAULT_COSTS_PATH.as_posix() == "preregistro/custos.json"
