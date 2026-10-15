@@ -67,7 +67,7 @@ def measure_coin(
     Com menos dias que isso, não mede e diz quantos faltam.
 
     Raises:
-        DataError: um dia que se qualifica não tem ``bbo`` compactado, ou a cotação é inválida.
+        DataError: um dia que se qualifica não tem ``bbo`` compactado, ou não há cotação válida.
     """
     qualifying = qualifying_days(daily, min_coverage_pct)
     if len(qualifying) < min_days:
@@ -87,5 +87,6 @@ def measure_coin(
         gap_days.append(repo.gaps(coin, start, end))
     bbo = pl.concat(bbo_days)
     gaps = pl.concat(gap_days).unique().sort("start_ms", "end_ms")
-    value = half_spread_bps(bbo, ((a, b) for a, b, *_ in gaps.iter_rows()), used)
-    return Measurement(coin, CostEntry(value, used, _data_hash(bbo, gaps)), qualifying, 0)
+    result = half_spread_bps(bbo, ((a, b) for a, b, *_ in gaps.iter_rows()), used)
+    entry = CostEntry(result.value_bps, used, _data_hash(bbo, gaps), result.skipped)
+    return Measurement(coin, entry, qualifying, 0)

@@ -606,6 +606,7 @@ def costs_measure(
             half_spread_bps=round(result.entry.half_spread_bps, 4),
             days=[iso(day_start(d))[:10] for d in result.entry.days],
             data_hash=result.entry.data_hash,
+            skipped_observations=result.entry.skipped_observations,
         )
     if measured:
         _write_text_atomic(costs, dump_costs(add_new(existing, measured)))

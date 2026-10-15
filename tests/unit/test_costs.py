@@ -68,7 +68,7 @@ def test_half_spread_median_is_time_weighted() -> None:
     Mutação: peso 1 por observação (em vez do tempo): devolveu 25, o teste caiu.
     """
     result = half_spread_bps(bbo((0, 50.0), (80_000_000, 12.5), (80_001_000, 25.0)), [], [DAY])
-    assert result == pytest.approx(50.0)
+    assert result.value_bps == pytest.approx(50.0)
 
 
 @pytest.mark.unit
@@ -81,7 +81,9 @@ def test_last_observation_weighs_until_the_end_of_the_day() -> None:
 
     Mutação: último intervalo com peso zero: devolveu 50, o teste caiu.
     """
-    assert half_spread_bps(bbo((0, 50.0), (40_000_000, 12.5)), [], [DAY]) == pytest.approx(12.5)
+    assert half_spread_bps(
+        bbo((0, 50.0), (40_000_000, 12.5)), [], [DAY]
+    ).value_bps == pytest.approx(12.5)
 
 
 @pytest.mark.unit
@@ -106,13 +108,13 @@ def test_time_inside_a_gap_does_not_count() -> None:
     """
     rows = bbo((0, 50.0), (40_000_000, 12.5))
     m = 1_000_000
-    assert half_spread_bps(rows, [], [DAY]) == pytest.approx(12.5)
-    assert half_spread_bps(rows, gaps((35 * m, 52 * m)), [DAY]) == pytest.approx(50.0)
-    assert half_spread_bps(rows, gaps((32 * m, 52 * m)), [DAY]) == pytest.approx(12.5)
-    assert half_spread_bps(rows, gaps((35 * m, 45 * m), (40 * m, 52 * m)), [DAY]) == (
+    assert half_spread_bps(rows, [], [DAY]).value_bps == pytest.approx(12.5)
+    assert half_spread_bps(rows, gaps((35 * m, 52 * m)), [DAY]).value_bps == pytest.approx(50.0)
+    assert half_spread_bps(rows, gaps((32 * m, 52 * m)), [DAY]).value_bps == pytest.approx(12.5)
+    assert half_spread_bps(rows, gaps((35 * m, 45 * m), (40 * m, 52 * m)), [DAY]).value_bps == (
         pytest.approx(50.0)
     )
-    assert half_spread_bps(rows, gaps((50 * m, 86_400_000)), [DAY]) == pytest.approx(50.0)
+    assert half_spread_bps(rows, gaps((50 * m, 86_400_000)), [DAY]).value_bps == pytest.approx(50.0)
 
 
 @pytest.mark.unit
@@ -127,8 +129,8 @@ def test_gap_spanning_the_start_or_end_of_the_day_is_clipped_to_the_day() -> Non
     m = 1_000_000
     before = [(D0 - 10 * m, D0 + 50 * m)]
     after = [(D0 + 50 * m, D0 + 200 * m)]
-    assert half_spread_bps(rows, before, [DAY]) == pytest.approx(12.5)
-    assert half_spread_bps(rows, after, [DAY]) == pytest.approx(50.0)
+    assert half_spread_bps(rows, before, [DAY]).value_bps == pytest.approx(12.5)
+    assert half_spread_bps(rows, after, [DAY]).value_bps == pytest.approx(50.0)
 
 
 @pytest.mark.unit
@@ -143,24 +145,40 @@ def test_only_the_given_days_enter() -> None:
     """
     day = MS_PER_DAY
     rows = bbo((0, 50.0), (day, 25.0), (2 * day, 12.5))
-    assert half_spread_bps(rows, [], [DAY, DAY + 2]) == pytest.approx(12.5)
-    assert half_spread_bps(rows, [], [DAY, DAY + 1, DAY + 2]) == pytest.approx(25.0)
+    assert half_spread_bps(rows, [], [DAY, DAY + 2]).value_bps == pytest.approx(12.5)
+    assert half_spread_bps(rows, [], [DAY, DAY + 1, DAY + 2]).value_bps == pytest.approx(25.0)
 
 
 @pytest.mark.unit
-def test_locked_book_is_a_zero_spread_and_bad_quotes_are_data_errors() -> None:
+def test_locked_book_is_zero_spread_and_invalid_quotes_are_skipped_and_counted() -> None:
+    """Design 1.8: compra igual à venda vale (zero); cotação inválida é pulada e contada.
+
+    Fila: A (12,5 bps) em 0, uma cotação inválida em 20M, C (50 bps) em 60M; o dia acaba em
+    86,4M. A pesa [0, 20M) = 20M e C pesa [60M, 86,4M) = 26,4M; o tempo [20M, 60M) é da cotação
+    inválida e não pesa. Total 46,4M, metade 23,2M: o 12,5 acumula 20M, e a mediana é 50. Se a
+    cotação inválida fosse apagada antes da conta, A pesaria até 60M (40M) e a mediana seria 12,5.
+    Vale para os cinco tipos de cotação inválida; cada um conta 1.
+
+    Mutação: apagar a linha inválida antes de calcular os pesos: o teste caiu.
+    """
     locked = pl.DataFrame(
         {"time_ms": [D0], "bid_px": [100.0], "ask_px": [100.0]},
         schema={"time_ms": pl.Int64, "bid_px": pl.Float64, "ask_px": pl.Float64},
     )
-    assert half_spread_bps(locked, [], [DAY]) == 0.0
+    result = half_spread_bps(locked, [], [DAY])
+    assert (result.value_bps, result.skipped) == (0.0, 0)
     for bid, ask in ((101.0, 100.0), (0.0, 100.0), (-1.0, 100.0), (100.0, None), (None, 100.0)):
-        bad = pl.DataFrame(
-            {"time_ms": [D0, D0 + 10], "bid_px": [99.5, bid], "ask_px": [100.5, ask]},
+        rows = pl.DataFrame(
+            {
+                "time_ms": [D0, D0 + 20_000_000, D0 + 60_000_000],
+                "bid_px": [99.875, bid, 99.5],
+                "ask_px": [100.125, ask, 100.5],
+            },
             schema={"time_ms": pl.Int64, "bid_px": pl.Float64, "ask_px": pl.Float64},
         )
-        with pytest.raises(DataError, match="Cotação inválida"):
-            half_spread_bps(bad, [], [DAY])
+        result = half_spread_bps(rows, [], [DAY])
+        assert result.value_bps == pytest.approx(50.0), (bid, ask)
+        assert result.skipped == 1
 
 
 @pytest.mark.unit
@@ -191,37 +209,38 @@ def test_cost_file_round_trips_with_ordered_keys_and_dates() -> None:
     assert dump_costs(parse_costs(text)) == text
 
 
+def one(**override: object) -> str:
+    """Um arquivo com BTC válido, com campos trocados por ``override`` (``None`` tira o campo)."""
+    entry: dict[str, object] = {
+        "half_spread_bps": 1.0,
+        "days": ["2024-10-04"],
+        "data_hash": HASH,
+        "skipped_observations": 0,
+    }
+    entry.update(override)
+    return json.dumps({"BTC": {k: v for k, v in entry.items() if v is not None}})
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("raw", "message"),
+    ("text", "message"),
     [
         ("[]", "objeto"),
         ("{", "JSON"),
         ('{"BTC": 1}', "chaves"),
-        ('{"BTC": {"half_spread_bps": 1.0, "days": ["2024-10-04"]}}', "chaves"),
-        ('{"BTC": {"half_spread_bps": -1.0, "days": ["2024-10-04"], "data_hash": "H"}}', "não neg"),
-        ('{"BTC": {"half_spread_bps": true, "days": ["2024-10-04"], "data_hash": "H"}}', "não neg"),
-        ('{"BTC": {"half_spread_bps": 1.0, "days": [], "data_hash": "H"}}', "lista não vazia"),
-        (
-            '{"BTC": {"half_spread_bps": 1.0, "days": ["2024-10-05", "2024-10-04"], '
-            '"data_hash": "H"}}',
-            "fora de ordem",
-        ),
-        (
-            '{"BTC": {"half_spread_bps": 1.0, "days": ["2024-10-04", "2024-10-04"], '
-            '"data_hash": "H"}}',
-            "repetido",
-        ),
-        ('{"BTC": {"half_spread_bps": 1.0, "days": ["2024-10-04"], "data_hash": "x"}}', "sha256"),
-        ('{"BTC": {"half_spread_bps": 1.0, "days": ["04/10/2024"], "data_hash": "H"}}', "Data"),
-        (
-            '{"BTC": {"half_spread_bps": 1, "days": ["2024-10-04"], "data_hash": "H"}, "BTC": 2}',
-            "repetida",
-        ),
+        (one(skipped_observations=-1), "skipped_observations"),
+        (one(skipped_observations=None), "chaves"),
+        (one(half_spread_bps=-1.0), "não neg"),
+        (one(half_spread_bps=True), "não neg"),
+        (one(days=[]), "lista não vazia"),
+        (one(days=["2024-10-05", "2024-10-04"]), "fora de ordem"),
+        (one(days=["2024-10-04", "2024-10-04"]), "repetido"),
+        (one(data_hash="x"), "sha256"),
+        (one(days=["04/10/2024"]), "Data"),
+        (one()[:-1] + ', "BTC": 2}', "repetida"),
     ],
 )
-def test_malformed_cost_file_is_config_error(raw: str, message: str) -> None:
-    text = raw.replace('"H"', json.dumps(HASH))
+def test_malformed_cost_file_is_config_error(text: str, message: str) -> None:
     with pytest.raises(ConfigError, match=message):
         parse_costs(text)
 

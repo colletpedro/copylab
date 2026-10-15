@@ -28,6 +28,7 @@ from copylab.timeutil import MS_PER_DAY, Ms, day_start, iso, parse_utc_date, utc
 __all__ = [
     "DEFAULT_COSTS_PATH",
     "CostEntry",
+    "HalfSpread",
     "add_new",
     "dump_costs",
     "half_spread_bps",
@@ -40,7 +41,7 @@ DEFAULT_COSTS_PATH: Final = Path("preregistro/custos.json")
 _BPS: Final = 10_000.0
 _MEDIAN_PCT: Final = 50
 _HASH: Final = re.compile(r"[0-9a-f]{64}")
-_KEYS: Final = frozenset({"half_spread_bps", "days", "data_hash"})
+_KEYS: Final = frozenset({"half_spread_bps", "days", "data_hash", "skipped_observations"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,7 @@ class CostEntry:
     half_spread_bps: float
     days: tuple[int, ...]  # dias UTC usados, em ordem (``utc_day``)
     data_hash: str  # sha256 hexadecimal dos dados lidos
+    skipped_observations: int = 0  # cotações inválidas, puladas (design 1.8)
 
 
 # ─── Arquivo ─────────────────────────────────────────────────────────────────
@@ -59,6 +61,11 @@ def _entry(coin: str, raw: object) -> CostEntry:
     if not isinstance(raw, dict) or set(raw) != _KEYS:
         raise ConfigError(f"Custo de {coin}: esperava um objeto com as chaves {sorted(_KEYS)}.")
     value, days, data_hash = raw["half_spread_bps"], raw["days"], raw["data_hash"]
+    skipped = raw["skipped_observations"]
+    if isinstance(skipped, bool) or not isinstance(skipped, int) or skipped < 0:
+        raise ConfigError(
+            f"Custo de {coin}: skipped_observations {skipped!r} não é um inteiro não negativo."
+        )
     if isinstance(value, bool) or not isinstance(value, int | float) or not 0.0 <= value < 1e9:
         raise ConfigError(
             f"Custo de {coin}: half_spread_bps {value!r} não é um número não negativo."
@@ -70,7 +77,7 @@ def _entry(coin: str, raw: object) -> CostEntry:
         raise ConfigError(f"Custo de {coin}: days fora de ordem ou com dia repetido: {days}.")
     if not isinstance(data_hash, str) or _HASH.fullmatch(data_hash) is None:
         raise ConfigError(f"Custo de {coin}: data_hash {data_hash!r} não é um sha256.")
-    return CostEntry(float(value), parsed, data_hash)
+    return CostEntry(float(value), parsed, data_hash, skipped)
 
 
 def parse_costs(text: str) -> dict[str, CostEntry]:
@@ -103,6 +110,7 @@ def dump_costs(costs: Mapping[str, CostEntry]) -> str:
             "half_spread_bps": entry.half_spread_bps,
             "days": [iso(day_start(d))[:10] for d in entry.days],
             "data_hash": entry.data_hash,
+            "skipped_observations": entry.skipped_observations,
         }
         for coin, entry in costs.items()
     }
@@ -166,9 +174,11 @@ def _gap_measure(instants: pl.Series, gaps: Sequence[tuple[int, int]]) -> pl.Ser
     return measure.get_column("g")
 
 
-def _check_quotes(day_rows: pl.DataFrame) -> None:
+def _invalid_quote() -> pl.Expr:
+    """Cotação sem preço, com preço não positivo ou não finito, ou com compra acima da venda.
+    Compra igual à venda é válida (meio-spread zero)."""
     bid, ask = pl.col("bid_px"), pl.col("ask_px")
-    bad = day_rows.filter(
+    return (
         bid.is_null()
         | ask.is_null()
         | (bid <= 0)
@@ -176,30 +186,33 @@ def _check_quotes(day_rows: pl.DataFrame) -> None:
         | (bid > ask)
         | ~bid.is_finite()
         | ~ask.is_finite()
-    )
-    if bad.height:
-        first = bad.row(0, named=True)
-        raise DataError(
-            f"Cotação inválida em {iso(Ms(first['time_ms']))}: compra {first['bid_px']}, "
-            f"venda {first['ask_px']}. Preço não positivo ou compra acima da venda: o dado "
-            "está errado, e descartar a linha mudaria o resultado em silêncio."
-        )
+    ).fill_null(value=True)
+
+
+@dataclass(frozen=True, slots=True)
+class HalfSpread:
+    """O meio-spread mediano e quantas cotações inválidas ficaram de fora."""
+
+    value_bps: float
+    skipped: int
 
 
 def half_spread_bps(
     bbo: pl.DataFrame, gaps: Iterable[tuple[int, int]], days: Sequence[int]
-) -> float:
+) -> HalfSpread:
     """Mediana ponderada pelo tempo do meio-spread, em bps, nos dias UTC ``days``.
 
     ``bbo`` traz ``time_ms``, ``bid_px`` e ``ask_px`` (a tabela do coletor); ``gaps`` são as
     lacunas ``(início, fim)`` no relógio da corretora. Só as observações cujo ``time_ms`` cai
-    nos dias dados entram.
+    nos dias dados entram. Cotação inválida é pulada e contada (design 1.8): o tempo dela não pesa
+    e não passa para a vizinha.
 
     Raises:
-        DataError: cotação inválida, ou nenhum tempo observado fora de lacuna.
+        DataError: nenhuma observação válida, ou nenhum tempo observado fora de lacuna.
     """
     merged = _merged(gaps)
     values: list[pl.DataFrame] = []
+    skipped = 0
     for day in days:
         start, end = day_start(day), Ms(day_start(day) + MS_PER_DAY)
         rows = (
@@ -209,7 +222,6 @@ def half_spread_bps(
         )
         if rows.height == 0:
             continue
-        _check_quotes(rows)
         times = rows.get_column("time_ms")
         following = pl.concat([times.slice(1), pl.Series([end], dtype=pl.Int64)])
         elapsed = following - times
@@ -220,11 +232,14 @@ def half_spread_bps(
             / (rows.get_column("ask_px") + rows.get_column("bid_px"))
             * _BPS
         )
-        values.append(pl.DataFrame({"value": half_spread, "weight": weight}))
+        invalid = rows.select(_invalid_quote().alias("bad")).get_column("bad")
+        skipped += int(invalid.sum())
+        frame = pl.DataFrame({"value": half_spread, "weight": weight}).filter(~invalid)
+        values.append(frame)
     if not values:
         raise DataError("Nenhuma observação de melhor compra e venda nos dias dados.")
     grouped = pl.concat(values).group_by("value").agg(pl.col("weight").sum())
     result = weighted_percentile(((float(v), int(w)) for v, w in grouped.iter_rows()), _MEDIAN_PCT)
     if result is None:
         raise DataError("Nenhum tempo observado fora de lacuna nos dias dados.")
-    return result
+    return HalfSpread(result, skipped)

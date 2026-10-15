@@ -177,7 +177,14 @@ def test_cost_file_adds_assets_and_never_changes_existing_value(
     """
     build(data_env, eth_first_day=DAY0 + 1)
     costs = tmp_path / "custos.json"
-    original = {"BTC": {"half_spread_bps": 99.0, "days": ["2024-10-04"], "data_hash": "cd" * 32}}
+    original = {
+        "BTC": {
+            "half_spread_bps": 99.0,
+            "days": ["2024-10-04"],
+            "data_hash": "cd" * 32,
+            "skipped_observations": 0,
+        }
+    }
     costs.write_text(json.dumps(original), encoding="utf-8")
 
     code, output = run(tmp_path, costs)
