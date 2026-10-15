@@ -115,7 +115,41 @@ def test_missing_day_stops_the_asset_and_is_reported(tmp_path: Path) -> None:
     result = ingest_proxy(archive, store, "SOL", "SOLUSDT", span)
     assert (result.complete, result.missing_day, result.downloaded) == (False, DAY + 1, 1)
     assert [d for _, d, _ in archive.downloads] == [DAY, DAY + 1]
-    assert files_exist(archive, "SOL", "SOLUSDT", span).missing_day == DAY + 1
+    assert files_exist(archive, store, "SOL", "SOLUSDT", span).missing_day == DAY + 1
+
+
+@pytest.mark.unit
+def test_condition_i_is_recorded_per_day_for_downloaded_and_checked_assets(tmp_path: Path) -> None:
+    """Design 1.8: a ingestão grava em `proxy_days` em quais dias o arquivo existe.
+
+    SOL (percurso completo) tem arquivos nos dias 0 e 2 e não no 1: grava (0, true) e (1, false) e
+    para; o dia 2 não é conferido, e não há linha para ele. XRP (só `.CHECKSUM`, como o ativo de
+    poucos fills) tem os três dias: grava três `true`. Um ativo sem nenhum arquivo grava (0, false).
+
+    Mutações: `.CHECKSUM` ausente gravado como `true`: caiu. Dia sem arquivo gravado como
+    `true` no percurso completo: caiu. Nada gravado: caiu.
+    """
+    files = {
+        ("SOLUSDT", DAY): archive_bytes(csv([(1, 150.0, D0 + 5)])),
+        ("SOLUSDT", DAY + 2): archive_bytes(csv([(1, 150.0, D0 + 2 * MS_PER_DAY + 5)])),
+        ("XRPUSDT", DAY): b"x",
+        ("XRPUSDT", DAY + 1): b"x",
+        ("XRPUSDT", DAY + 2): b"x",
+    }
+    archive = FakeArchive(files)
+    store = ParquetStore(tmp_path)
+    repo = ParquetRepository(store)
+    span = Span(Ms(D0), Ms(D0 + 3 * MS_PER_DAY))
+    ingest_proxy(archive, store, "SOL", "SOLUSDT", span)
+    files_exist(archive, store, "XRP", "XRPUSDT", span)
+    files_exist(archive, store, "ADA", "ADAUSDT", span)
+
+    def rows(coin: str) -> list[tuple[int, bool]]:
+        return repo.proxy_days(coin, span.start, span.end).rows()
+
+    assert rows("SOL") == [(DAY, True), (DAY + 1, False)]
+    assert rows("XRP") == [(DAY, True), (DAY + 1, True), (DAY + 2, True)]
+    assert rows("ADA") == [(DAY, False)]
 
 
 @pytest.mark.unit

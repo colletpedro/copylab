@@ -105,7 +105,7 @@ def ingest_market(
             f"proxy {coin}",
             partial(ingest_proxy, archive, store, coin, symbol, span)
             if full
-            else partial(files_exist, archive, coin, symbol, span),
+            else partial(files_exist, archive, store, coin, symbol, span),
         )
         if result is None:
             continue

@@ -39,12 +39,13 @@ from copylab.storage.tables import (
     LEADERBOARD,
     META,
     PROXY,
+    PROXY_DAYS,
     RAW_LEADERBOARD,
     ROLES,
     SCHEMAS,
     TRADES,
 )
-from copylab.timeutil import MS_PER_SECOND, Ms, iso, utc_day
+from copylab.timeutil import MS_PER_DAY, MS_PER_SECOND, Ms, iso, utc_day
 
 __all__ = ["ParquetRepository"]
 
@@ -57,6 +58,7 @@ _PARTITION_COLUMNS: Final[dict[str, tuple[str, ...]]] = {
     DIVERGENCES: ("address",),
     FUNDING: ("coin",),
     PROXY: ("coin", "day"),
+    PROXY_DAYS: ("coin",),
     BBO: ("coin", "day"),
     BOOK: ("coin", "day"),
     TRADES: ("coin", "day"),
@@ -69,6 +71,7 @@ _INSTANT: Final[dict[str, pl.Expr]] = {
     DIVERGENCES: pl.col("time_ms"),
     FUNDING: pl.col("hour_ms"),
     PROXY: pl.col("second") * MS_PER_SECOND,
+    PROXY_DAYS: pl.col("day") * MS_PER_DAY,
     BBO: pl.col("time_ms"),
     BOOK: pl.col("time_ms"),
     TRADES: pl.col("time_ms"),
@@ -164,6 +167,12 @@ class ParquetRepository:
         frame = self._days(PROXY, coin, utc_day(start), utc_day(Ms(end - 1)))
         instant = _INSTANT[PROXY]
         return frame.filter(instant.is_between(start, end, closed="left")).sort("second")
+
+    def proxy_days(self, coin: str, start: Ms, end: Ms) -> pl.DataFrame:
+        """Dias UTC (``day``) em que a ingestão conferiu se o arquivo da Binance existe, e se
+        existe (``found``), para os dias que começam em ``[start, end)``."""
+        frame = self._partition(PROXY_DAYS, (coin,))
+        return frame.filter(_INSTANT[PROXY_DAYS].is_between(start, end, closed="left")).sort("day")
 
     def _exchange_time(self, table: str, coin: str, start: Ms, end: Ms) -> pl.DataFrame:
         if end <= start:

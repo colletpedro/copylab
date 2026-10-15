@@ -2,9 +2,10 @@
 
 :func:`candidate_assets` lê, pelo ``BoundedRepository``, os fills das carteiras do pool com
 cobertura ``ok`` e junta, por perpétuo do primeiro dex: notional, número de fills, a condição
-(i) e a conferência do proxy. :func:`form_universe` aplica as cinco condições na ordem e guarda,
-para cada ativo, a primeira que o excluiu. O universo é função só das candidatas, dos custos
-medidos e dos parâmetros: quando o pool cresce, é refeito do zero (RF-SEL-07 CA-07.2).
+(i), lida de ``proxy_days``, e a conferência do proxy. :func:`form_universe` aplica as cinco
+condições na ordem e guarda, para cada ativo, a primeira que o excluiu. O universo é função só
+das candidatas, dos custos medidos e dos parâmetros: quando o pool
+cresce, é refeito do zero (RF-SEL-07 CA-07.2).
 """
 
 from collections.abc import Mapping, Sequence
@@ -20,7 +21,7 @@ from copylab.params import Params
 from copylab.ports import BoundedRepository
 from copylab.selection.assets import fill_notional
 from copylab.selection.proxycheck import ProxyCheck, check_proxy
-from copylab.timeutil import MS_PER_DAY, MS_PER_SECOND, Ms, utc_day
+from copylab.timeutil import Ms, utc_day
 from copylab.windows import Window
 
 __all__ = [
@@ -59,8 +60,8 @@ class AssetFacts:
     coin: str
     notional: float
     n_fills: int
-    has_proxy: bool  # condição (i): proxy gravado em todos os dias UTC da janela
-    proxy: ProxyCheck | None  # só para quem cumpre (i)
+    meets_i: bool  # condição (i): arquivo da Binance em todos os dias UTC da janela (proxy_days)
+    proxy: ProxyCheck | None  # só para quem cumpre (i) e tem proxy gravado
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,11 +111,10 @@ def _window_days(window: Window) -> range:
     return range(utc_day(window.start), utc_day(Ms(window.end - 1)) + 1)
 
 
-def _has_every_day(proxy: pl.DataFrame, window: Window) -> bool:
-    present = set(
-        proxy.select((pl.col("second") * MS_PER_SECOND // MS_PER_DAY).unique()).to_series()
-    )
-    return set(_window_days(window)) <= present
+def _has_every_day(proxy_days: pl.DataFrame, window: Window) -> bool:
+    """Todo dia da janela tem linha em ``proxy_days`` com ``found`` verdadeiro."""
+    there = set(proxy_days.filter(pl.col("found")).get_column("day").to_list())
+    return set(_window_days(window)) <= there
 
 
 def candidate_assets(
@@ -164,10 +164,10 @@ def candidate_assets(
     universe = params.universe
     assets: list[AssetFacts] = []
     for coin, notional_sum, n_fills in totals.iter_rows():
-        proxy = repo.proxy(coin, window.start, window.end)
-        has_proxy = proxy.height > 0 and _has_every_day(proxy, window)
+        meets_i = _has_every_day(repo.proxy_days(coin, window.start, window.end), window)
         check = None
-        if has_proxy:
+        proxy = repo.proxy(coin, window.start, window.end) if meets_i else None
+        if proxy is not None and proxy.height > 0:
             check = check_proxy(
                 coin,
                 all_fills.filter(pl.col("coin") == coin),
@@ -176,7 +176,7 @@ def candidate_assets(
                 max_deviation_p95_bps=universe.proxy_max_deviation_p95_bps,
                 max_level_bps=universe.proxy_max_level_bps,
             )
-        assets.append(AssetFacts(coin, float(notional_sum), int(n_fills), has_proxy, check))
+        assets.append(AssetFacts(coin, float(notional_sum), int(n_fills), meets_i, check))
     return Candidates(wallets, tuple(assets), total, perp_total)
 
 
@@ -190,12 +190,12 @@ def form_universe(
     isto é, entrada em ``costs``. Cada ativo guarda a primeira condição que o excluiu.
     """
     ordered = sorted(candidates.assets, key=lambda a: (-a.notional, a.coin))
-    meeting_i = [a.coin for a in ordered if a.has_proxy]
+    meeting_i = [a.coin for a in ordered if a.meets_i]
     top = set(meeting_i[: params.universe.max_assets])
     decisions: list[AssetDecision] = []
     for asset in ordered:
         failed: Condition | None
-        if not asset.has_proxy:
+        if not asset.meets_i:
             failed = "i"
         elif asset.coin not in top:
             failed = "ii"

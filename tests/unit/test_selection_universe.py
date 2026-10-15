@@ -45,6 +45,7 @@ from tests.unit.selection_support import (
     coverage_table,
     fill_row,
     fills_table,
+    proxy_days_table,
     proxy_table,
     real_params,
 )
@@ -89,6 +90,7 @@ class Scenario:
         self.rows: dict[str, list[dict[str, object]]] = {}
         self.proxy: dict[str, list[tuple[int, float]]] = {}
         self.k = 0
+        self.days: dict[str, dict[int, bool]] = {}  # proxy_days sem proxy gravado
 
     def add(self, wallet: str, coin: str, px: float, last: float | None, n: int = 1) -> None:
         for _ in range(n):
@@ -106,7 +108,12 @@ class Scenario:
             # Um segundo por dia sem fill, para a condição (i) ver os três dias.
             fillers = [(day_start(20_000 + d) // 1_000 + 5, rows[0][1]) for d in range(3)]
             proxy[coin] = proxy_table([*rows, *fillers])
+        days = {
+            coin: proxy_days_table(dict.fromkeys(range(20_000, 20_003), True)) for coin in proxy
+        }
+        days.update({c: proxy_days_table(f) for c, f in self.days.items()})
         return FakeRepository(
+            proxy_days=days,
             fills={a: fills_table(*rows) for a, rows in self.rows.items()},
             coverage={a: coverage_table(W, s) for a, s in statuses.items()},
             proxy=proxy,
@@ -176,9 +183,9 @@ def test_candidates_sum_only_ok_wallets_in_notional_order() -> None:
     assert candidates.perp_notional == pytest.approx(6_916.0)
     assert candidates.total_notional == pytest.approx(7_916.0)
     by_coin = {a.coin: a for a in candidates.assets}
-    assert not by_coin["SOL"].has_proxy
+    assert not by_coin["SOL"].meets_i
     assert by_coin["SOL"].proxy is None
-    assert by_coin["BTC"].has_proxy
+    assert by_coin["BTC"].meets_i
     assert by_coin["BTC"].proxy is not None
     assert by_coin["BTC"].proxy.valid
     assert by_coin["XRP"].proxy is not None
@@ -268,25 +275,71 @@ def test_universe_is_reformed_when_pool_grows() -> None:
 
 @pytest.mark.unit
 def test_universe_asset_without_proxy_on_every_day_fails_condition_i() -> None:
-    """A condição (i) pede proxy em todos os dias da janela. BTC com proxy só nos dias 0 e 1
-    falha em (i), mesmo com o resto em ordem."""
+    """A condição (i) pede `proxy_days` com `found` em todos os dias da janela. BTC só com os
+    dias 0 e 1 falha em (i), mesmo com o resto em ordem.
+
+    Mutações: `_has_every_day` devolvendo "há algum dia" (`bool(there)`): caiu. Sem o filtro de
+    `found`: caiu em `test_condition_i_comes_from_proxy_days_even_without_downloaded_proxy`."""
     s = Scenario()
     s.add("0xA", "BTC", 1000.0, 1000.0, 3)
     repo = s.repo({"0xA": "ok"})
     full = candidate_assets(bounded(repo), ["0xA"], W, params())
-    assert full.assets[0].has_proxy
+    assert full.assets[0].meets_i
+    days = repo.proxy_days_by_coin["BTC"].filter(pl.col("day") < 20_002)
     trimmed = FakeRepository(
         fills=repo.fills_by_address,
         coverage=repo.coverage_by_address,
-        proxy={
-            "BTC": repo.proxy_by_coin["BTC"].filter(pl.col("second") * 1_000 < day_start(20_002))
-        },
+        proxy=repo.proxy_by_coin,
+        proxy_days={"BTC": days},
     )
     partial = candidate_assets(bounded(trimmed), ["0xA"], W, params())
-    assert not partial.assets[0].has_proxy
+    assert not partial.assets[0].meets_i
     assert partial.assets[0].proxy is None
     universe = form_universe(partial, COSTS, params())
     assert universe.decisions[0].excluded_by == "i"
+
+
+@pytest.mark.unit
+def test_condition_i_comes_from_proxy_days_even_without_downloaded_proxy() -> None:
+    """Design 1.8: o ativo cujo proxy não foi baixado (poucos fills) cumpre (i) pela tabela
+    `proxy_days`, e ocupa vaga de (ii).
+
+    Mesmo cenário, com SOL tendo `found = true` nos três dias e nenhum proxy gravado. Cumprem (i):
+    BTC, ETH, SOL, XRP, AVAX e DOGE; os 4 primeiros em (ii) são BTC, ETH, SOL e XRP, então AVAX
+    sai em (ii) (antes, em (iii)). SOL tem 3 fills e custo, mas sem proxy gravado não passa em
+    (iv): conferência ausente é proxy inválido. Com `found = false` num dia, SOL volta a (i).
+
+    Mutação: ler (i) da presença de linhas em `proxy`: SOL voltou a (i), caiu.
+    """
+    s = Scenario()
+    s.add("0xA", "BTC", 1000.0, 1000.0, 3)
+    s.add("0xA", "ETH", 500.0, 500.0, 3)
+    s.add("0xB", "SOL", 400.0, None, 3)
+    s.add("0xA", "XRP", 256.0, 256.0, 3)
+    s.add("0xB", "AVAX", 128.0, 128.0, 3)
+    s.add("0xB", "DOGE", 64.0, 64.0, 3)
+    s.days["SOL"] = dict.fromkeys(range(20_000, 20_003), True)
+    universe = form_universe(
+        candidate_assets(bounded(s.repo({"0xA": "ok", "0xB": "ok"})), ["0xA", "0xB"], W, params()),
+        COSTS,
+        params(),
+    )
+    by_coin = {d.asset.coin: d.excluded_by for d in universe.decisions}
+    assert by_coin == {
+        "BTC": None,
+        "ETH": "v",
+        "SOL": "iv",
+        "XRP": None,
+        "AVAX": "ii",
+        "DOGE": "ii",
+    }
+    s.days["SOL"][20_001] = False
+    again = form_universe(
+        candidate_assets(bounded(s.repo({"0xA": "ok", "0xB": "ok"})), ["0xA", "0xB"], W, params()),
+        COSTS,
+        params(),
+    )
+    assert {d.asset.coin: d.excluded_by for d in again.decisions}["SOL"] == "i"
 
 
 @pytest.mark.unit

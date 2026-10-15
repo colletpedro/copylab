@@ -29,7 +29,7 @@ import polars as pl
 from copylab.exceptions import DataError
 from copylab.logging import get_logger
 from copylab.storage import ParquetStore, Span
-from copylab.storage.tables import PROXY, SCHEMAS
+from copylab.storage.tables import PROXY, PROXY_DAYS, SCHEMAS
 from copylab.timeutil import MS_PER_DAY, MS_PER_SECOND, day_start, iso, utc_day
 
 __all__ = [
@@ -257,6 +257,19 @@ def _days(span: Span) -> range:
     return range(utc_day(span.start), utc_day(span.end))
 
 
+def _record_days(store: ParquetStore, coin: str, span: Span, found: dict[int, bool]) -> None:
+    """Grava em ``proxy_days`` o que o percurso conferiu: em que dias o arquivo existe (design 1.8).
+    Os dias que o percurso não conferiu (depois do primeiro sem arquivo) ficam sem linha."""
+    rows = [{"day": day, "found": there} for day, there in sorted(found.items())]
+    store.write(
+        PROXY_DAYS,
+        (coin,),
+        pl.DataFrame(rows, schema=SCHEMAS[PROXY_DAYS]),
+        span=span,
+        instant=pl.col("day") * MS_PER_DAY,
+    )
+
+
 def ingest_proxy(
     archive: DailyArchive, store: ParquetStore, coin: str, symbol: str, span: Span
 ) -> ProxyAsset:
@@ -267,12 +280,16 @@ def ingest_proxy(
     """
     downloaded = 0
     days = _days(span)
+    found: dict[int, bool] = {}
     for day in days:
         if proxy_covered(store, coin, day):
+            found[day] = True
             continue
         result = ingest_proxy_day(archive, store, coin, symbol, day)
+        found[day] = result.found
         if not result.found:
             log.warning("ingest.proxy.missing_day", coin=coin, symbol=symbol, day=_day_text(day))
+            _record_days(store, coin, span, found)
             return ProxyAsset(coin, symbol, len(days), downloaded, day)
         downloaded += 1
         log.info(
@@ -284,13 +301,21 @@ def ingest_proxy(
             trades=result.trades,
             zip_mb=round(result.zip_bytes / 10**6, 2),
         )
+    _record_days(store, coin, span, found)
     return ProxyAsset(coin, symbol, len(days), downloaded, None)
 
 
-def files_exist(archive: DailyArchive, coin: str, symbol: str, span: Span) -> ProxyAsset:
-    """Confere a condição (i) sem baixar os arquivos: só o ``.CHECKSUM`` de cada dia."""
+def files_exist(
+    archive: DailyArchive, store: ParquetStore, coin: str, symbol: str, span: Span
+) -> ProxyAsset:
+    """Confere a condição (i) sem baixar os arquivos (só o ``.CHECKSUM`` de cada dia) e a grava
+    em ``proxy_days``."""
     days = _days(span)
+    found: dict[int, bool] = {}
     for day in days:
-        if archive.checksum(symbol, day) is None:
+        found[day] = archive.checksum(symbol, day) is not None
+        if not found[day]:
+            _record_days(store, coin, span, found)
             return ProxyAsset(coin, symbol, len(days), 0, day)
+    _record_days(store, coin, span, found)
     return ProxyAsset(coin, symbol, len(days), 0, None)

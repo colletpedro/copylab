@@ -27,6 +27,7 @@ __all__ = [
     "LEADERBOARD",
     "META",
     "PROXY",
+    "PROXY_DAYS",
     "RAW_LEADERBOARD",
     "ROLES",
     "SCHEMAS",
@@ -46,6 +47,7 @@ COVERAGE: Final = "coverage"  # partição: endereço
 DIVERGENCES: Final = "divergences"  # partição: endereço
 FUNDING: Final = "funding"  # partição: ativo
 PROXY: Final = "proxy"  # partição: ativo, dia UTC
+PROXY_DAYS: Final = "proxy_days"  # partição: ativo
 BBO: Final = "bbo"  # partição: ativo, dia UTC de recebimento
 BOOK: Final = "book"  # partição: ativo, dia UTC de recebimento
 TRADES: Final = "trades"  # partição: ativo, dia UTC de recebimento
@@ -103,6 +105,7 @@ SCHEMAS: Final[dict[str, dict[str, Any]]] = {
         "last": pl.Float64,
         "n_trades": pl.Int64,
     },
+    PROXY_DAYS: {"day": pl.Int64, "found": pl.Boolean},
     BBO: {
         **_COLLECTOR_TIMES,
         "bid_px": pl.Float64,

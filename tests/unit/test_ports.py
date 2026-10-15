@@ -64,6 +64,9 @@ class RecordingRepository:
     def proxy(self, coin: str, start: Ms, end: Ms) -> pl.DataFrame:
         return self._answer("proxy", coin, start, end)
 
+    def proxy_days(self, coin: str, start: Ms, end: Ms) -> pl.DataFrame:
+        return self._answer("proxy_days", coin, start, end)
+
     def bbo(self, coin: str, start: Ms, end: Ms) -> pl.DataFrame:
         return self._answer("bbo", coin, start, end)
 
@@ -86,6 +89,7 @@ CUT_READS: dict[str, Read] = {
     "fills": lambda r, end: r.fills("0xabc", START, end),
     "funding": lambda r, end: r.funding("BTC", START, end),
     "proxy": lambda r, end: r.proxy("BTC", START, end),
+    "proxy_days": lambda r, end: r.proxy_days("BTC", START, end),
     "bbo": lambda r, end: r.bbo("BTC", START, end),
     "book": lambda r, end: r.book("BTC", START, end),
     "gaps": lambda r, end: r.gaps("BTC", START, end),

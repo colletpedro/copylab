@@ -12,7 +12,7 @@ from typing import Any
 import polars as pl
 
 from copylab.params import Params, load_params
-from copylab.storage.tables import COVERAGE, FILLS, PROXY, SCHEMAS
+from copylab.storage.tables import COVERAGE, FILLS, PROXY, PROXY_DAYS, SCHEMAS
 from copylab.timeutil import Ms
 from copylab.windows import Window
 
@@ -61,6 +61,13 @@ def fills_table(*rows: dict[str, Any]) -> pl.DataFrame:
     return pl.DataFrame([{"seq": i, **row} for i, row in enumerate(rows)], schema=SCHEMAS[FILLS])
 
 
+def proxy_days_table(found: Mapping[int, bool]) -> pl.DataFrame:
+    """``proxy_days`` a partir de pares ``(dia, existe)``."""
+    return pl.DataFrame(
+        [{"day": d, "found": f} for d, f in found.items()], schema=SCHEMAS[PROXY_DAYS]
+    )
+
+
 def proxy_table(rows: Sequence[tuple[int, float]]) -> pl.DataFrame:
     """Proxy a partir de pares ``(segundo, último preço)``; mínimo e máximo valem o último."""
     return pl.DataFrame(
@@ -95,11 +102,13 @@ class FakeRepository:
         fills: Mapping[str, pl.DataFrame] | None = None,
         coverage: Mapping[str, pl.DataFrame] | None = None,
         proxy: Mapping[str, pl.DataFrame] | None = None,
+        proxy_days: Mapping[str, pl.DataFrame] | None = None,
         roles: Mapping[Ms, pl.DataFrame] | None = None,
     ) -> None:
         self.fills_by_address = dict(fills or {})
         self.coverage_by_address = dict(coverage or {})
         self.proxy_by_coin = dict(proxy or {})
+        self.proxy_days_by_coin = dict(proxy_days or {})
         self.roles_by_snapshot = dict(roles or {})
         self.reads: list[tuple[str, str, int, int]] = []
 
@@ -131,6 +140,11 @@ class FakeRepository:
         self.reads.append(("proxy", coin, start, end))
         frame = self.proxy_by_coin.get(coin, pl.DataFrame(schema=SCHEMAS[PROXY]))
         return frame.filter((pl.col("second") * 1_000).is_between(start, end, closed="left"))
+
+    def proxy_days(self, coin: str, start: Ms, end: Ms) -> pl.DataFrame:
+        self.reads.append(("proxy_days", coin, start, end))
+        frame = self.proxy_days_by_coin.get(coin, pl.DataFrame(schema=SCHEMAS[PROXY_DAYS]))
+        return frame.filter((pl.col("day") * 86_400_000).is_between(start, end, closed="left"))
 
     def bbo(self, coin: str, start: Ms, end: Ms) -> pl.DataFrame:
         raise NotImplementedError
