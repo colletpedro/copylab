@@ -18,7 +18,8 @@ T-060 e a ordenação de ativos de T-061, adiantadas do Bloco F) foi implementad
 API real em escala pequena; a ingestão completa (marco M-B) foi rodada em 2026-10-09. Em 2026-10-12, o design 1.4 precisou o
 livro-razão do líder, e o Bloco C (T-030 a T-032) foi implementado; o design 1.5 precisou o simulador, e o
 Bloco D (T-040 a T-045) foi implementado. Ainda em 2026-10-12, o design 1.6 respondeu as perguntas do
-Bloco D e precisou a analytics, e o Bloco E (T-050 a T-053) foi implementado.** O repositório está publicado em
+Bloco D e precisou a analytics, e o Bloco E (T-050 a T-053) foi implementado. Em 2026-10-13 a 15, os designs 1.7 e 1.8 precisaram a
+primeira parte do Bloco F, e T-061 a T-064 (universo, medida de custo, filtros F1 a F10 e N\*) foram implementados.** O repositório está publicado em
 `https://github.com/colletpedro/copylab`.
 Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 
@@ -38,11 +39,13 @@ Detalhe, decisões e pendências em [`HANDOFF.md`](../HANDOFF.md).
 | Bloco B — ingestão (T-020 a T-027) | ✅ código pronto; `make check` verde; integração (5 carteiras, 1 dia de proxy) rodada uma vez contra a API real |
 | T-060 (pool) e ordenação de ativos de T-061 | ✅ adiantadas do Bloco F, em `selection` |
 | M-B — ingestão do pool da Rota A | ✅ concluído (2026-10-09), `snapshot_ms=1791482136751`: 3.000 carteiras (2.972 `ok`, 28 `frequência incompatível`, 0 falhas), 3.581.682 fills; 20 ativos cumprem (i) e (ii), todos com proxy; 422 MB em disco |
-| M-C — medida de custo | ⬜ depois de 3 dias UTC completos de gravação dos 20 ativos (BNB e TAO: a partir de 2026-10-13 00:00 UTC) |
+| M-C — medida de custo | ⬜ comando `costs measure` pronto (T-062), a rodar na máquina do coletor; depois de 3 dias UTC completos de gravação dos 20 ativos (BNB e TAO: a partir de 2026-10-13 00:00 UTC) |
 | Bloco C — livro-razão do líder (T-030 a T-032) | ✅ implementado em 2026-10-12, sobre o design 1.4; `copylab.leader` com 100% de linhas e ramos, mutações registradas nas docstrings; CI verde nos três jobs (execução 38291860362, commit `50b5b7e`) |
 | Bloco D — simulador (T-040 a T-045) | ✅ implementado em 2026-10-12, sobre o design 1.5; `copylab.sim` com 97% de linhas e ramos; a mutação do futuro (RF-SIM-01 CA-01.2) pega cinco mutações de lookahead; CI verde nos três jobs (execução 38295992920, commit `a0b769c`) |
 | Bloco E — analytics (T-050 a T-053) | ✅ implementado em 2026-10-12, sobre o design 1.6; `copylab.analytics` com 100% de linhas e ramos; mutações registradas nas docstrings; CI verde nos três jobs (execução 38329120020, commit `a0cfc7b`) |
-| Demais blocos (F a H) | ⬜ |
+| Bloco F, primeira parte (T-061 a T-064) | ✅ implementado em 2026-10-15, sobre os designs 1.7 e 1.8; `copylab.selection` com 100% de linhas e ramos; filtros sobre 3.000 carteiras e 3,6 milhões de fills sintéticos em ~62 s (RNF-04: 600 s) |
+| Bloco F, segunda parte (T-065 a T-067) | ⬜ ranking, coortes de controle, congelamento, `select`, teste de aceitação |
+| Demais blocos (G e H) | ⬜ |
 
 ## Próximo
 
@@ -79,8 +82,10 @@ paralelo, o Bloco F (seleção); C, D e E estão prontos. Depois dele, G (avalia
   suíte (`fake.py`); snapshots de leaderboard e lotes; fills com paginação, cobertura, retomada e
   reingestão; funding; proxy da Binance e percurso dos candidatos (`market.py`); tipo de conta;
   guarda da janela de avaliação. Comandos `ingest leaderboard`, `ingest fills` e `ingest market`.
-- `src/copylab/selection/` — só o pool (`pool.py`, T-060) e a ordenação dos ativos candidatos
-  (`assets.py`, metade de T-061). O resto do Bloco F não existe.
+- `src/copylab/selection/` — pool (`pool.py`), ativos candidatos (`assets.py`), conferência do proxy (`proxycheck.py`), candidatas e
+  universo (`universe.py`), fatos por carteira (`facts.py`), filtros F1 a F10 e funil (`filters.py`) e N\* (`reference.py`). Faltam o
+  ranking, as coortes de controle, o congelamento e o comando `select` (T-065 a T-067).
+- `src/copylab/costs.py` e `collector/costs.py` — arquivo `preregistro/custos.json` e a medida do meio-spread; `stats.py` — percentis.
 - `src/copylab/leader/` — o livro-razão do líder (Bloco C): `ledger.py` (passada fill a fill, posições,
   eventos por milissegundo, quebras de continuidade, fills ignorados), `episodes.py`, `pnl.py`
   (conferência por custo médio) e `diagnostics.py` (quebras por idade e por TWAP), com os tipos em
@@ -104,8 +109,8 @@ paralelo, o Bloco F (seleção); C, D e E estão prontos. Depois dele, G (avalia
 
 ## Números
 
-- 600 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 2 de integração
-  (60 s do WebSocket real; ingestão de 5 carteiras e de um dia de proxy de BTC), fora da suíte
+- 713 testes unitários, todos offline, que o CI roda em Linux e em Windows, e 3 de integração
+  (60 s do WebSocket real; ingestão de 5 carteiras e de um dia de proxy de BTC; desempenho da seleção, RNF-04), fora da suíte
   default e do CI.
 - Cobertura medida em `leader`, `selection`, `sim` e `analytics`: `leader`, `selection`, `sim` e `analytics` têm
   código; `leader`, `selection` e `analytics` com 100% de linhas e ramos e `sim` com 97% (`leader`: `ledger`, `episodes`, `pnl`, `diagnostics`, `model`;

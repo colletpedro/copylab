@@ -1471,3 +1471,75 @@ traz a conta).
 ## 8. CI
 
 Verde nos três jobs (lint, tipos e testes; testes no Windows; auditoria) no commit `a0cfc7b`, execução 38329120020.
+
+---
+
+# HANDOFF — Bloco F, primeira parte: universo, custo, filtros e N* (prompts 13 e 13-B)
+
+**Data:** 2026-10-13 a 2026-10-15
+**Escopo entregue:** T-061 a T-064, as decisões do Pedro (design 1.8) e a medida de desempenho.
+**Não feito, de propósito:** ranking, coortes de controle, congelamento, comando `select` e o teste de aceitação da
+seleção (prompt seguinte). `costs measure` e a seleção não rodaram sobre dado real.
+
+## 1. Parte 0
+
+- **Respostas do Bloco E** (prompt 13): giro, grupo BTC/ETH/SOL, subconta congelada, alavancagem máxima, benchmark a 1x e
+  "fora do universo" confirmam o design 1.6, sem mudá-lo; `MAJORS` ganhou o comentário que cita RF-ANA-01 CA-01.4
+  (`66d58c8`); `docs/coletor.md` §10 usa `git pull --ff-only` (`0fd0ba4`). Design 1.7 (`be1ae2a`) com as precisões do Bloco F.
+- **Decisões do Pedro** (prompt 13-B, design 1.8, `56d8aa2`): (1) os dois percentis de 95 vão para `parametros.toml`
+  (`[universe] proxy_deviation_percentile_pct`, `[reference] percentile_pct`; `608926d`); a mediana de F8 é o tipo da
+  estatística e fica no código; (2) a condição (i) é gravada pela ingestão em `proxy_days` e lida de lá (`0e154d2`);
+  (3) cotação inválida no `bbo` é pulada e contada em `custos.json`, no campo `skipped_observations` (`339773d`).
+
+## 2. Tarefas
+
+| Tarefa | Commit | Onde |
+|---|---|---|
+| percentis sem interpolação | `7d074fa` | `copylab/stats.py`, `timeutil.utc_day_expr` e `second_of_expr` |
+| T-062 medida de custo, `costs measure` | `79c2c6f`, `339773d` | `copylab/costs.py`, `collector/costs.py`, `cli.py` |
+| T-061 proxy, candidatas, universo | `b6ba593`, `0e154d2` | `selection/proxycheck.py`, `universe.py`; `proxy_days` em `storage`, `ports`, `ingestion/proxy.py` |
+| T-064 N* | `ab2c982` | `selection/reference.py` |
+| T-063 fatos, F1 a F10, funil | `21e7064` | `selection/facts.py`, `filters.py` |
+| RNF-04 | `tests/integration/test_selection_performance.py` | integração |
+
+T-062 veio antes de T-061 porque a condição (v) lê o arquivo de custos. `test_universe_is_reformed_when_pool_grows`,
+pendente do Bloco B, entrou com T-061.
+
+## 3. Números
+
+- **Cobertura de `copylab.selection`: 100% das linhas e dos ramos** (com o teste das colunas ausentes de `candidate_assets`,
+  que fechou a última linha). Total medido (`leader`, `selection`, `sim`, `analytics`): 99%.
+- **713 testes unitários** (eram 600), todos offline. Mais um de integração: **RNF-04, 3.000 carteiras e 3.600.000
+  fills sintéticos: fatos 50,2 s, funil 0,15 s, N\* 11,4 s, total 61,8 s contra os 600 s do orçamento.** Rodado em
+  2026-10-15 nesta máquina, sem paralelismo. Cada carteira passa 5 vezes pelo livro-razão (episódios, quebras, eventos,
+  conferência de PnL, N\*); se o tempo apertar com dado real, a primeira coisa é compartilhar a passada `walk`.
+- Cada teste de invariante novo tem a mutação registrada na docstring e foi mutado à mão.
+
+## 4. Decisões que tomei onde o design não decidia — revise
+
+1. **`wallet_facts` recebe o patrimônio e `lots`** (e não só o repositório), e não recebe `Params`. F5 guarda os instantes de
+   abertura e conta os blocos no filtro; F6, F7, F8 e F9 guardam a medida, e o limiar é do filtro.
+2. **`pnl_violations(fills, episodes, -1.0)`** devolve todo episódio conferível com a divergência dele (que nunca é
+   negativa); o que falta na resposta é divergência `None`. É um uso à margem da função, com comentário no código. Evita
+   reconstruir o índice de fills por episódio.
+3. **Medida indefinida reprova o filtro** (sem episódio fechado: F4 e F6; sem notional: F7 e F9; sem tempo em posição: F8).
+4. **Funil**: o estágio `N*` é `with_reference`, separado de `run_funnel`; F1 só pede tipo de conta a quem chega a ele.
+5. **`has_ok_coverage`** compara a janela exata, como o `ingest market`. Carteira de janela diferente não conta.
+6. **`wallet_facts` conta `ignored_fills` só nos perpétuos do primeiro dex** (F3); os HIP-3 sem campo não reprovam.
+7. **Conferência do proxy**: fill sem preço também é pulado e contado; ativo sem fill comparável é inválido.
+
+## 5. Para o Pedro (marco M-C e o próximo passo)
+
+- **`ingest market` precisa rodar de novo**, só para preencher `proxy_days` (retomável; só confere a existência dos
+  arquivos pelo `.CHECKSUM`; nada de setembro): na máquina que tem os dados do M-B,
+
+  ```
+  caffeinate -i uv run copylab ingest market --route A --window selection --pool-blocks 1 --snapshot 1791482136751
+  ```
+- **`costs measure`** roda na máquina Windows, que tem os dados do coletor: `uv run copylab costs measure`; ele diz quantos
+  dias faltam a cada ativo e só grava se mediu algum. Commitar `preregistro/custos.json`.
+- A forma de trazer os dados do coletor para a máquina de análise (e, portanto, de rodar `select`) é decisão do próximo passo.
+
+## 6. CI
+
+Ver `docs/STATE.md`. O primeiro push (`0e154d2`) reprovou só no Windows, num teste de caminho com `str(Path)` (`d922f1e`).

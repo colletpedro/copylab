@@ -51,7 +51,7 @@ from tests.unit.selection_support import (
 )
 
 from copylab.costs import CostEntry
-from copylab.exceptions import LookaheadError
+from copylab.exceptions import DataError, LookaheadError
 from copylab.ingestion.fills import STATUS_INCOMPATIBLE
 from copylab.ingestion.fills import STATUS_OK as INGESTION_STATUS_OK
 from copylab.params import Params
@@ -358,3 +358,16 @@ def test_no_candidates_gives_an_empty_universe() -> None:
     repo = FakeRepository()
     candidates = candidate_assets(bounded(repo), ["0xZ"], W, params())
     assert candidates == Candidates(0, (), 0.0, 0.0)
+
+
+@pytest.mark.unit
+def test_fills_without_the_needed_columns_are_a_data_error() -> None:
+    """Tabela de fills sem `px`: `DataError` com o nome da coluna, e não um erro obscuro do polars.
+
+    Mutação: sem a checagem de colunas: o erro virou `ColumnNotFoundError`, e o teste caiu."""
+    repo = FakeRepository(
+        fills={"0xA": fills_table(fill_row(W.start + 1, "BTC", "B", 1.0, 1.0, 0.0)).drop("px")},
+        coverage={"0xA": coverage_table(W, "ok")},
+    )
+    with pytest.raises(DataError, match="px"):
+        candidate_assets(bounded(repo), ["0xA"], W, params())
